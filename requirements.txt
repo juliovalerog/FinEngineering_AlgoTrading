@@ -5,3 +5,5 @@ seaborn
 yfinance
 numpy-financial
 vectorbt
+streamlit
+google-genai
