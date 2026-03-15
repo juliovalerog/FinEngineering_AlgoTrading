@@ -35,8 +35,9 @@ FinEngineering_AlgoTrading/
 
 ## Learning path
 
-1. **Notebook 1 - Financial Data Analysis with Python**
-   Builds a clean market-data workflow: data acquisition, cleaning, feature engineering, and visual interpretation.
+1. **Notebook 1 - Market Data Foundations for Financial Engineering**
+   Builds a professional market-data workflow: universe selection, programmatic collection, reliability checks, canonical price-table construction, finance-ready metrics, and analyst-style summary outputs.
+   The notebook is designed as a guided walkthrough of how raw market data becomes a trusted analytical base for later monitoring, modeling, and trading work.
 
 2. **Notebook 2 - Leveraged Buyout Modeling from Entry to Exit**
    Rebuilds the analyst logic of an LBO transaction: inputs, valuation, Sources & Uses, operating projection, cash sweep, deleveraging, returns, sensitivity, and productization.
@@ -78,6 +79,12 @@ jupyter notebook
 ```
 
 Then open the notebooks in `notebooks/` and run each notebook from top to bottom.
+
+## Notebook 1 data workflow
+
+Notebook 1 downloads market data programmatically with `yfinance` and also includes a local cache in `data/market_data_foundations_prices.csv` for classroom robustness.
+
+This keeps the workflow professional and reproducible while still allowing the notebook to run if live download is temporarily unavailable.
 
 ## Run the LBO Streamlit demo
 
