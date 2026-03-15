@@ -19,6 +19,8 @@ FinEngineering_AlgoTrading/
 |- README.md
 |- requirements.txt
 |- .gitignore
+|- .streamlit/
+|  |- config.toml
 |- data/
 |  |- README.md
 |- app/
@@ -94,6 +96,7 @@ streamlit run app/streamlit_lbo_demo.py
 
 The app mirrors the same case logic as `notebooks/02_lbo_model_python.ipynb` and is intended as a short end-of-class productization demo rather than the main teaching asset.
 Its purpose is to show how the same analytical engine can be packaged into a lightweight decision-support prototype without changing the underlying finance logic.
+The Streamlit UI now ships with a light custom theme defined in `.streamlit/config.toml`, plus app-level styling for friendlier chart and control colors during classroom demos.
 
 ## Optional Gemini reporting layer
 
@@ -104,12 +107,17 @@ Set the API key before running the Gemini section:
 ```bash
 # Windows PowerShell
 $env:GEMINI_API_KEY="your_api_key_here"
+# or
+# $env:GOOGLE_API_KEY="your_api_key_here"
 
 # macOS / Linux
 # export GEMINI_API_KEY="your_api_key_here"
+# or
+# export GOOGLE_API_KEY="your_api_key_here"
 ```
 
 If no key is present, the notebook and app fail gracefully and simply skip the AI-generated commentary.
+If the key is present but invalid, the app now surfaces a clearer credential error instead of the raw SDK exception.
 
 ## Notes for students
 

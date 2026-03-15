@@ -13,6 +13,30 @@ except ImportError:  # pragma: no cover - optional dependency
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
+def _resolve_api_key(explicit_api_key: str | None = None) -> str | None:
+    """Accept either project-specific or Google-standard environment variable names."""
+    return explicit_api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+def _format_gemini_exception(exc: Exception) -> str:
+    """Convert SDK errors into short, actionable messages for classroom demos."""
+    error_text = str(exc)
+    lowered_error_text = error_text.lower()
+
+    if "api_key_invalid" in lowered_error_text or "api key not valid" in lowered_error_text:
+        return (
+            "Gemini commentary skipped: the configured API key was rejected. "
+            "Set a valid Gemini API key in GEMINI_API_KEY or GOOGLE_API_KEY."
+        )
+
+    if "permission_denied" in lowered_error_text or "permission denied" in lowered_error_text:
+        return (
+            "Gemini commentary skipped: the API key does not have permission to use the selected model."
+        )
+
+    return f"Gemini commentary skipped: {error_text}"
+
+
 def build_commentary_payload(results: dict[str, Any]) -> dict[str, float | int]:
     """Extract only the model outputs the reporting layer is allowed to discuss."""
     returns_summary = results["returns_summary"].set_index("Metric")["Value"]
@@ -93,12 +117,12 @@ def generate_investment_commentary(
     model: str = DEFAULT_GEMINI_MODEL,
 ) -> dict[str, Any]:
     """Generate a short finance-oriented commentary with graceful fallback."""
-    resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    resolved_api_key = _resolve_api_key(api_key)
 
     if not resolved_api_key:
         return {
             "success": False,
-            "message": "Gemini commentary skipped: set GEMINI_API_KEY to enable the optional reporting layer.",
+            "message": "Gemini commentary skipped: set GEMINI_API_KEY or GOOGLE_API_KEY to enable the optional reporting layer.",
         }
 
     if genai is None:
@@ -119,7 +143,7 @@ def generate_investment_commentary(
     except Exception as exc:  # pragma: no cover - network / credential dependent
         return {
             "success": False,
-            "message": f"Gemini commentary skipped: {exc}",
+            "message": _format_gemini_exception(exc),
         }
 
     if not text:

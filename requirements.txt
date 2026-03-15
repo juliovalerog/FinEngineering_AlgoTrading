@@ -7,3 +7,5 @@ numpy-financial
 vectorbt
 streamlit
 google-genai
+notebook
+ipykernel

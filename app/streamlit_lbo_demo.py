@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.ticker import FuncFormatter
 
 
@@ -19,14 +20,25 @@ from utils.lbo_engine import get_base_case_inputs, run_lbo_model
 
 
 COLORS = {
-    "navy": "#14324A",
-    "teal": "#1F6F78",
-    "sand": "#D7C3A3",
-    "slate": "#5A6C7D",
-    "green": "#2D7D46",
-    "red": "#A6473C",
-    "light": "#F6F3EE",
+    "navy": "#183649",
+    "teal": "#4C8A84",
+    "sand": "#D5B06F",
+    "slate": "#5E7283",
+    "green": "#7BAA7C",
+    "red": "#C66B5C",
+    "light": "#F7F3EC",
+    "panel": "#FFFDF8",
+    "mist": "#E8F0F2",
+    "border": "#D7DDD5",
+    "grid": "#D9E3DF",
+    "code": "#1C2730",
+    "accent": "#2E7D73",
 }
+
+HEATMAP_CMAP = LinearSegmentedColormap.from_list(
+    "lbo_teaching_heatmap",
+    [COLORS["light"], "#DCE9E1", "#95BFB6", COLORS["teal"], COLORS["navy"]],
+)
 
 
 def eur_millions(value: float, _position: int | None = None) -> str:
@@ -39,6 +51,19 @@ def percent(value: float, decimals: int = 1) -> str:
     return f"{value * 100:.{decimals}f}%"
 
 
+def style_axis(axis: plt.Axes, grid_axis: str | None = "y") -> None:
+    axis.set_facecolor(COLORS["panel"])
+    axis.tick_params(colors=COLORS["slate"], labelsize=9.5)
+    axis.xaxis.label.set_color(COLORS["slate"])
+    axis.yaxis.label.set_color(COLORS["slate"])
+    axis.title.set_color(COLORS["navy"])
+    for spine in axis.spines.values():
+        spine.set_color(COLORS["border"])
+    if grid_axis is not None:
+        axis.grid(axis=grid_axis, color=COLORS["grid"], linewidth=0.8)
+        axis.set_axisbelow(True)
+
+
 def style_page() -> None:
     # The page style is intentionally restrained: the app should feel like a
     # professional prototype that supports the notebook, not a flashy dashboard.
@@ -46,12 +71,53 @@ def style_page() -> None:
     st.markdown(
         f"""
         <style>
+        :root {{
+            color-scheme: light;
+        }}
         .stApp {{
-            background: linear-gradient(180deg, #fbfaf6 0%, #f1ece3 100%);
+            background:
+                radial-gradient(circle at top left, rgba(232, 240, 242, 0.75) 0%, rgba(232, 240, 242, 0) 38%),
+                linear-gradient(180deg, #fcfaf6 0%, {COLORS["light"]} 100%);
+            color: {COLORS["navy"]};
+        }}
+        [data-testid="stAppViewContainer"] {{
+            background: transparent;
+        }}
+        [data-testid="stHeader"] {{
+            background: rgba(247, 243, 236, 0.88);
+            border-bottom: 1px solid {COLORS["border"]};
         }}
         h1, h2, h3 {{
             color: {COLORS["navy"]};
             letter-spacing: -0.02em;
+        }}
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMarkdownContainer"] strong,
+        [data-testid="stText"],
+        label,
+        .stAlert {{
+            color: {COLORS["navy"]};
+        }}
+        [data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, {COLORS["mist"]} 0%, #dde7ea 100%);
+            border-right: 1px solid {COLORS["border"]};
+        }}
+        [data-testid="stSidebar"] * {{
+            color: {COLORS["navy"]};
+        }}
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+            color: {COLORS["slate"]};
+        }}
+        [data-testid="stMetric"] {{
+            background: rgba(255, 253, 248, 0.92);
+            border: 1px solid {COLORS["border"]};
+            border-radius: 18px;
+            padding: 0.85rem 1rem;
+            box-shadow: 0 12px 30px rgba(24, 54, 73, 0.06);
+        }}
+        [data-testid="stMetricLabel"] {{
+            color: {COLORS["slate"]};
         }}
         [data-testid="stMetricValue"] {{
             color: {COLORS["navy"]};
@@ -62,15 +128,55 @@ def style_page() -> None:
             max-width: 1250px;
         }}
         .intro-card {{
-            background: rgba(255, 255, 255, 0.72);
-            border: 1px solid rgba(20, 50, 74, 0.10);
+            background: rgba(255, 253, 248, 0.90);
+            border: 1px solid {COLORS["border"]};
             padding: 1.2rem 1.4rem;
             border-radius: 18px;
             margin-bottom: 1rem;
+            box-shadow: 0 18px 35px rgba(24, 54, 73, 0.06);
         }}
         .section-note {{
             color: {COLORS["slate"]};
             font-size: 0.97rem;
+        }}
+        .stButton > button {{
+            background: linear-gradient(135deg, {COLORS["navy"]} 0%, {COLORS["accent"]} 100%);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 0.65rem 1.1rem;
+            box-shadow: 0 12px 24px rgba(24, 54, 73, 0.18);
+        }}
+        .stButton > button:hover {{
+            filter: brightness(1.03);
+        }}
+        .stButton > button:focus {{
+            box-shadow: 0 0 0 0.2rem rgba(46, 125, 115, 0.22);
+        }}
+        div[data-baseweb="slider"] > div > div {{
+            background-color: {COLORS["accent"]};
+        }}
+        div[data-baseweb="slider"] [role="slider"] {{
+            background-color: {COLORS["panel"]};
+            border: 2px solid {COLORS["accent"]};
+            box-shadow: 0 4px 12px rgba(24, 54, 73, 0.12);
+        }}
+        .stDataFrame, [data-testid="stTable"] {{
+            border: 1px solid {COLORS["border"]};
+            border-radius: 16px;
+            overflow: hidden;
+            background: rgba(255, 253, 248, 0.88);
+        }}
+        .stAlert {{
+            border-radius: 14px;
+        }}
+        code, pre, .stCodeBlock {{
+            color: #F8F4ED;
+        }}
+        .stMarkdown pre, .stCodeBlock pre {{
+            background: {COLORS["code"]};
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
         }}
         </style>
         """,
@@ -82,6 +188,7 @@ def plot_entry_bridge(entry_valuation: pd.DataFrame) -> plt.Figure:
     # This chart answers the first question in the deal:
     # how do we move from enterprise value to equity value?
     figure, axis = plt.subplots(figsize=(7, 4))
+    figure.patch.set_facecolor(COLORS["panel"])
     bridge = pd.DataFrame(
         {
             "Label": ["Enterprise Value", "Net Debt", "Equity Value"],
@@ -99,6 +206,7 @@ def plot_entry_bridge(entry_valuation: pd.DataFrame) -> plt.Figure:
     axis.yaxis.set_major_formatter(FuncFormatter(eur_millions))
     axis.set_title("Entry valuation bridge")
     axis.set_ylabel("EUR millions")
+    style_axis(axis)
     axis.spines[["top", "right"]].set_visible(False)
     return figure
 
@@ -109,6 +217,7 @@ def plot_sources_and_uses(sources_and_uses: pd.DataFrame) -> plt.Figure:
     sources = sources_and_uses["Sources"].dropna().drop("Total Sources")
 
     figure, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+    figure.patch.set_facecolor(COLORS["panel"])
     axes[0].barh(uses.index, uses.values, color=[COLORS["sand"], COLORS["slate"], COLORS["red"]])
     axes[0].set_title("Uses of funds")
     axes[1].barh(sources.index, sources.values, color=[COLORS["navy"], COLORS["teal"], COLORS["green"]])
@@ -116,6 +225,7 @@ def plot_sources_and_uses(sources_and_uses: pd.DataFrame) -> plt.Figure:
 
     for axis in axes:
         axis.xaxis.set_major_formatter(FuncFormatter(eur_millions))
+        style_axis(axis, grid_axis="x")
         axis.spines[["top", "right"]].set_visible(False)
         axis.set_xlabel("EUR millions")
 
@@ -136,6 +246,7 @@ def plot_operating_projection(operating_projection: pd.DataFrame, debt_schedule:
     # operating performance improves, and part of that improvement becomes debt-paying cash.
     projected = operating_projection.drop(index="Historical")
     figure, axes = plt.subplots(1, 2, figsize=(12, 4))
+    figure.patch.set_facecolor(COLORS["panel"])
 
     axes[0].plot(projected.index, projected["EBITDA"], marker="o", linewidth=2.5, color=COLORS["navy"])
     axes[0].bar(projected.index, projected["EBIT"], alpha=0.3, color=COLORS["teal"])
@@ -143,6 +254,7 @@ def plot_operating_projection(operating_projection: pd.DataFrame, debt_schedule:
     axes[0].set_ylabel("EUR millions")
     axes[0].yaxis.set_major_formatter(FuncFormatter(eur_millions))
     axes[0].legend(["EBITDA", "EBIT"], frameon=False)
+    style_axis(axes[0])
     axes[0].spines[["top", "right"]].set_visible(False)
     axes[0].annotate(
         f"Exit-year EBITDA: {projected['EBITDA'].iloc[-1]:.1f}",
@@ -161,6 +273,7 @@ def plot_operating_projection(operating_projection: pd.DataFrame, debt_schedule:
     axes[1].set_title("Cash flow available for debt repayment")
     axes[1].set_ylabel("EUR millions")
     axes[1].yaxis.set_major_formatter(FuncFormatter(eur_millions))
+    style_axis(axes[1])
     axes[1].spines[["top", "right"]].set_visible(False)
     axes[1].plot(
         debt_schedule.index,
@@ -176,6 +289,7 @@ def plot_operating_projection(operating_projection: pd.DataFrame, debt_schedule:
 def plot_deleveraging(debt_schedule: pd.DataFrame) -> plt.Figure:
     # Stacked bars show capital structure composition, while the line highlights total debt reduction.
     figure, axis = plt.subplots(figsize=(8, 4))
+    figure.patch.set_facecolor(COLORS["panel"])
     axis.bar(
         debt_schedule.index,
         debt_schedule["Ending senior debt"],
@@ -192,6 +306,7 @@ def plot_deleveraging(debt_schedule: pd.DataFrame) -> plt.Figure:
     axis.set_title("Debt evolution and composition")
     axis.set_ylabel("EUR millions")
     axis.yaxis.set_major_formatter(FuncFormatter(eur_millions))
+    style_axis(axis)
     axis.legend(frameon=False)
     axis.spines[["top", "right"]].set_visible(False)
     total_debt = debt_schedule["Ending senior debt"] + debt_schedule["Ending subordinated debt"]
@@ -203,6 +318,7 @@ def plot_deleveraging(debt_schedule: pd.DataFrame) -> plt.Figure:
 def plot_credit_metrics(credit_metrics: pd.DataFrame) -> plt.Figure:
     # These are lender-facing metrics, so they sit immediately after the debt schedule.
     figure, axes = plt.subplots(1, 2, figsize=(12, 4))
+    figure.patch.set_facecolor(COLORS["panel"])
 
     axes[0].plot(
         credit_metrics.index,
@@ -213,6 +329,7 @@ def plot_credit_metrics(credit_metrics: pd.DataFrame) -> plt.Figure:
     )
     axes[0].set_title("Leverage trend")
     axes[0].set_ylabel("x")
+    style_axis(axes[0])
     axes[0].spines[["top", "right"]].set_visible(False)
     axes[0].annotate(
         f"{credit_metrics['Total Debt / EBITDA'].iloc[-1]:.2f}x",
@@ -232,6 +349,7 @@ def plot_credit_metrics(credit_metrics: pd.DataFrame) -> plt.Figure:
     )
     axes[1].set_title("Interest coverage trend")
     axes[1].set_ylabel("x")
+    style_axis(axes[1])
     axes[1].spines[["top", "right"]].set_visible(False)
     axes[1].annotate(
         f"{credit_metrics['EBITDA / Interest expense'].iloc[-1]:.2f}x",
@@ -249,7 +367,8 @@ def plot_sensitivity_heatmap(table: pd.DataFrame, title: str, value_format: str)
     # The heatmap is intentionally simple because the teaching point is pattern recognition:
     # students should immediately see where returns improve or deteriorate.
     figure, axis = plt.subplots(figsize=(7, 5))
-    image = axis.imshow(table.to_numpy(dtype=float), cmap="YlGnBu", aspect="auto")
+    figure.patch.set_facecolor(COLORS["panel"])
+    image = axis.imshow(table.to_numpy(dtype=float), cmap=HEATMAP_CMAP, aspect="auto")
     axis.set_xticks(np.arange(len(table.columns)))
     axis.set_xticklabels(table.columns)
     axis.set_yticks(np.arange(len(table.index)))
@@ -257,6 +376,7 @@ def plot_sensitivity_heatmap(table: pd.DataFrame, title: str, value_format: str)
     axis.set_title(title)
     axis.set_xlabel(table.columns.name)
     axis.set_ylabel(table.index.name)
+    style_axis(axis, grid_axis=None)
 
     for row_idx, row_value in enumerate(table.index):
         for col_idx, col_value in enumerate(table.columns):
@@ -271,7 +391,9 @@ def plot_sensitivity_heatmap(table: pd.DataFrame, title: str, value_format: str)
                 fontsize=9,
             )
 
-    figure.colorbar(image, ax=axis, shrink=0.85)
+    colorbar = figure.colorbar(image, ax=axis, shrink=0.85)
+    colorbar.ax.yaxis.set_tick_params(color=COLORS["slate"])
+    plt.setp(colorbar.ax.get_yticklabels(), color=COLORS["slate"])
     return figure
 
 
@@ -281,6 +403,7 @@ def plot_return_bridge(returns_summary: pd.DataFrame, value_creation_bridge: pd.
     # 2) which levers actually created that value.
     lookup = returns_summary.set_index("Metric")["Value"]
     figure, axes = plt.subplots(1, 2, figsize=(12, 4))
+    figure.patch.set_facecolor(COLORS["panel"])
 
     axes[0].bar(
         ["Equity invested", "Equity realized"],
@@ -289,6 +412,7 @@ def plot_return_bridge(returns_summary: pd.DataFrame, value_creation_bridge: pd.
     )
     axes[0].set_title("Sponsor equity invested vs realized")
     axes[0].yaxis.set_major_formatter(FuncFormatter(eur_millions))
+    style_axis(axes[0])
     axes[0].spines[["top", "right"]].set_visible(False)
 
     axes[1].bar(
@@ -298,6 +422,7 @@ def plot_return_bridge(returns_summary: pd.DataFrame, value_creation_bridge: pd.
     )
     axes[1].set_title("Value creation bridge")
     axes[1].yaxis.set_major_formatter(FuncFormatter(eur_millions))
+    style_axis(axes[1])
     axes[1].spines[["top", "right"]].set_visible(False)
     plt.setp(axes[1].get_xticklabels(), rotation=18, ha="right")
     return figure
