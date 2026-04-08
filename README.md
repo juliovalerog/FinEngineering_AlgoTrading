@@ -37,9 +37,9 @@ FinEngineering_AlgoTrading/
 
 ## Learning path
 
-1. **Notebook 1 - Market Data Foundations for Financial Engineering**
-   Builds a professional market-data workflow: universe selection, programmatic collection, reliability checks, canonical price-table construction, finance-ready metrics, and analyst-style summary outputs.
-   The notebook is designed as a guided walkthrough of how raw market data becomes a trusted analytical base for later monitoring, modeling, and trading work.
+1. **Notebook 1 - Large-Cap U.S. Technology First-Round Screen**
+   Frames a realistic investment-committee request and screens a broad universe of 20 U.S. technology names plus the `SPY` benchmark.
+   The notebook builds a decision-ready workflow: data intake, quality control, canonical price-table preparation, return/risk comparison, shortlist construction, and an executive watchlist for deeper follow-up.
 
 2. **Notebook 2 - Leveraged Buyout Modeling from Entry to Exit**
    Rebuilds the analyst logic of an LBO transaction: inputs, valuation, Sources & Uses, operating projection, cash sweep, deleveraging, returns, sensitivity, and productization.
@@ -84,9 +84,9 @@ Then open the notebooks in `notebooks/` and run each notebook from top to bottom
 
 ## Notebook 1 data workflow
 
-Notebook 1 downloads market data programmatically with `yfinance` and also includes a local cache in `data/market_data_foundations_prices.csv` for classroom robustness.
+Notebook 1 downloads market data programmatically with `yfinance` and also includes a local cache in `data/us_tech_watchlist_prices.csv` so the screening workflow remains reproducible if live download is temporarily unavailable.
 
-This keeps the workflow professional and reproducible while still allowing the notebook to run if live download is temporarily unavailable.
+The screen starts from a broader peer set and narrows it to a smaller first-round watchlist, so the local cache is part of the reproducible analytical artifact rather than a convenience sample.
 
 ## Run the LBO Streamlit demo
 
