@@ -726,9 +726,16 @@ def build_sensitivity_tables(
     }
 
 
-def run_lbo_model(overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Public entry point used by the notebook and Streamlit app."""
-    model_inputs = get_base_case_inputs()
+def run_lbo_model(
+    overrides: dict[str, dict[str, Any]] | None = None,
+    base_inputs: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Public entry point used by the notebook and Streamlit app.
+
+    ``base_inputs`` lets the teaching notebook keep its assumptions visible
+    while the Streamlit app can keep using the shared default case.
+    """
+    model_inputs = deepcopy(base_inputs) if base_inputs is not None else get_base_case_inputs()
     if overrides:
         model_inputs = _deep_update(model_inputs, deepcopy(overrides))
 

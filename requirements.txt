@@ -2,6 +2,7 @@ pandas
 numpy
 matplotlib
 seaborn
+plotly
 yfinance
 numpy-financial
 vectorbt
