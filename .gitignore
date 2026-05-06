@@ -12,6 +12,7 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
+notebooks/02_lbo_model_python_solutions.ipynb
 
 # Distribution / packaging
 build/
