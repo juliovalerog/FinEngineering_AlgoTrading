@@ -132,3 +132,42 @@ def test_daily_mark_to_market_snapshots_extend_after_excel_snapshot() -> None:
     latest = snapshots[snapshots["date"] == "2026-01-04"].iloc[0]
     assert latest["total_portfolio_value"] == 1000300
     assert np.isclose(latest["benchmark_return"], 0.10)
+
+
+def test_spy_like_benchmark_extension_remains_continuous() -> None:
+    trades = pd.DataFrame([_trade("ABC", "BUY", "2026-04-16", 10, 100)])
+    prices = pd.DataFrame(
+        [
+            {"date": "2026-04-17", "symbol": "ABC", "price": 100, "source": "Precios sheet"},
+            {"date": "2026-05-08", "symbol": "ABC", "price": 105, "source": "Yahoo Finance"},
+        ]
+    )
+    benchmark_prices = pd.DataFrame(
+        [
+            {"date": "2026-04-17", "benchmark": "S&P 500", "price": 620, "source": "Portfolio sheet"},
+            {"date": "2026-05-08", "benchmark": "S&P 500", "price": 635, "source": "Yahoo Finance"},
+        ]
+    )
+    existing_snapshots = pd.DataFrame(
+        [
+            {
+                "date": "2026-04-17",
+                "invested_value": 1000,
+                "cash": 999000,
+                "total_portfolio_value": 1000000,
+                "portfolio_return": 0.0,
+                "benchmark_return": 0.0,
+            }
+        ]
+    )
+
+    snapshots = portfolio_engine.compute_daily_mark_to_market_snapshots(
+        trades,
+        prices,
+        benchmark_prices=benchmark_prices,
+        existing_snapshots=existing_snapshots,
+    )
+
+    latest_return = float(snapshots.loc[snapshots["date"] == "2026-05-08", "benchmark_return"].iloc[0])
+    assert np.isclose(latest_return, 635 / 620 - 1)
+    assert latest_return < 0.10

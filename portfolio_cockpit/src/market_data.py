@@ -12,7 +12,7 @@ from . import portfolio_engine, storage
 
 YAHOO_SOURCE = "Yahoo Finance"
 SP500_BENCHMARK = "S&P 500"
-SP500_YAHOO_TICKER = "^GSPC"
+SP500_YAHOO_TICKER = "SPY"
 
 
 def _to_date(value: Any) -> date | None:

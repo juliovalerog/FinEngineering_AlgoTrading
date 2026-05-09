@@ -288,7 +288,11 @@ def run_data_quality_checks(
         )
     elif portfolio_snapshots is not None and not portfolio_snapshots.empty:
         snapshot_dates = pd.to_datetime(portfolio_snapshots["date"], errors="coerce").dropna()
-        benchmark_dates = pd.to_datetime(benchmark_prices["date"], errors="coerce").dropna()
+        benchmark_data = benchmark_prices.copy()
+        benchmark_data["date"] = pd.to_datetime(benchmark_data["date"], errors="coerce")
+        benchmark_data["price"] = pd.to_numeric(benchmark_data["price"], errors="coerce")
+        benchmark_data = benchmark_data.dropna(subset=["date", "price"]).sort_values("date")
+        benchmark_dates = benchmark_data["date"].dropna()
         if not snapshot_dates.empty and not benchmark_dates.empty and benchmark_dates.max() < snapshot_dates.max():
             issues.append(
                 _issue(
@@ -298,6 +302,18 @@ def run_data_quality_checks(
                     recommendation="Refresh benchmark data or explain that relative performance is based on stale benchmark data.",
                 )
             )
+        if len(benchmark_data) >= 2:
+            ratios = benchmark_data["price"] / benchmark_data["price"].shift(1)
+            scale_jumps = benchmark_data[(ratios > 3) | (ratios < 1 / 3)]
+            if not scale_jumps.empty:
+                issues.append(
+                    _issue(
+                        "Warning",
+                        "benchmark_scale_may_be_inconsistent",
+                        "The benchmark series has a sudden level jump above 3x between consecutive observations.",
+                        recommendation="Check whether ETF-level prices and raw index levels were mixed. The Yahoo refresh uses SPY because the Excel S&P500 series is SPY-like in scale.",
+                    )
+                )
 
     incomplete = trades[
         trades["status"].astype(str).str.contains("INCOMPLETE", case=False, na=False)
