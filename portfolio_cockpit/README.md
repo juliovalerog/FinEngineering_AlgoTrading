@@ -70,6 +70,16 @@ The initial load detects these sheets when present:
 
 The `TRACK` sheet is converted into a normalized trade ledger. Current positions, portfolio snapshots, benchmark prices and audit events are stored in SQLite. Subsequent runs load from SQLite instead of rebuilding from Excel.
 
+## App Workflow
+
+The app is organized into five classroom sections:
+
+- `Home / Portfolio Cockpit`: executive KPIs, portfolio value, benchmark comparison and attention points.
+- `Data & Controls`: Excel/SQLite status, reset, Yahoo refresh, price coverage, data quality, lineage and audit log.
+- `Portfolio Analysis`: current positions, allocation, contributors, detractors and concentration.
+- `Performance & Risk`: return, benchmark, volatility, Sharpe, Sortino, beta, tracking error, information ratio and drawdown.
+- `Actions & Reporting`: trade simulation, SQLite/session commits, NEW TRADES import, deterministic report, optional Gemini report and production roadmap.
+
 ## Reset Demo Database
 
 Use the button **Reset to original Excel state** in the first tab. This deletes and rebuilds only the demo SQLite database from the original Excel input. It removes Yahoo-updated prices and Yahoo-extended snapshot dates from the live local database. It does not overwrite the Excel file.

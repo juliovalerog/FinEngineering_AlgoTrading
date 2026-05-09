@@ -8,5 +8,6 @@ numpy-financial
 vectorbt
 streamlit
 google-genai
+openpyxl
 notebook
 ipykernel

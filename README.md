@@ -1,18 +1,10 @@
-# Financial Engineering with Python: Financial Analysis, LBO Modeling, and Algorithmic Trading
+# Financial Engineering with Python
 
-This repository is a compact teaching resource for a Financial Engineering course. It contains three classroom-ready Jupyter notebooks that demonstrate how Python supports professional workflows across:
+This repository is a teaching resource for a Financial Engineering course. It shows how Python supports professional workflows across market-data analysis, leveraged buyout modeling, and portfolio management.
 
-- financial data analysis,
-- leveraged buyout (LBO) modeling, and
-- algorithmic trading with backtesting.
+The materials are classroom-first. Students focus on workflow design, financial logic, data quality, and interpretation of results rather than Python syntax for its own sake.
 
-The notebooks are designed for guided review in class: students focus on workflow design, financial logic, and interpretation of results.
-
-The repository is intentionally teaching-first. When there is a trade-off between technical sophistication and classroom clarity, the materials prioritize clarity, explicit analytical logic, and heavily commented code that students can revisit after class.
-
-The LBO section now also includes a lightweight Streamlit demo that reuses the same analytical engine and an optional Gemini-based reporting layer for short investment commentary.
-
-## Repository structure
+## Repository Structure
 
 ```text
 FinEngineering_AlgoTrading/
@@ -21,113 +13,129 @@ FinEngineering_AlgoTrading/
 |- .gitignore
 |- .streamlit/
 |  |- config.toml
-|- data/
-|  |- README.md
 |- app/
 |  |- streamlit_lbo_demo.py
+|- data/
+|  |- README.md
+|  |- market_data_foundations_prices.csv
+|  |- us_tech_watchlist_prices.csv
 |- notebooks/
 |  |- 01_financial_data_analysis.ipynb
 |  |- 02_lbo_model_python.ipynb
-|  |- 03_algorithmic_trading_backtest.ipynb
+|- portfolio_cockpit/
+|  |- app.py
+|  |- requirements.txt
+|  |- run_app_windows.bat
+|  |- run_app_windows.ps1
+|  |- data/
+|  |  |- input/
+|  |  |  |- Portfolio Example JULIO.xlsx
+|  |  |- store/
+|  |- docs/
+|  |- src/
+|  |- tests/
 |- utils/
 |  |- README.md
 |  |- lbo_engine.py
 |  |- gemini_reporting.py
 ```
 
-## Learning path
+## Learning Path
 
-1. **Notebook 1 - Large-Cap U.S. Technology First-Round Screen**
-   Frames a realistic investment-committee request and screens a broad universe of 20 U.S. technology names plus the `SPY` benchmark.
-   The notebook builds a decision-ready workflow: data intake, quality control, canonical price-table preparation, return/risk comparison, shortlist construction, and an executive watchlist for deeper follow-up.
+1. **Session 1 - Market Data And Financial Data Analysis**
+   Uses `notebooks/01_financial_data_analysis.ipynb` to frame a realistic investment-screening workflow: data intake, quality control, price-table preparation, return/risk comparison, shortlist construction, and executive watchlist.
 
-2. **Notebook 2 - Leveraged Buyout Modeling from Entry to Exit**
-   Rebuilds the analyst logic of an LBO transaction: inputs, valuation, Sources & Uses, operating projection, cash sweep, deleveraging, returns, sensitivity, and productization.
-   The notebook is written as a guided walkthrough, with detailed markdown and code comments that explain the financial meaning of each modeling block.
+2. **Session 2 - LBO Modeling And Productization**
+   Uses `notebooks/02_lbo_model_python.ipynb` to rebuild analyst logic for an LBO transaction: inputs, valuation, Sources & Uses, operating projection, cash sweep, deleveraging, returns, and sensitivities. The same analytical engine is also packaged in `app/streamlit_lbo_demo.py` as a lightweight Streamlit demo with optional Gemini commentary.
 
-3. **Notebook 3 - Algorithmic Trading, Backtesting, and Performance Evaluation**
-   Applies a full quantitative loop from indicators to performance diagnostics, first manually and then with `vectorbt`.
+3. **Session 3 - Portfolio Management Cockpit**
+   Uses `portfolio_cockpit/app.py` as the main professional portfolio-management demo. The class shows how an operational Excel file becomes a monitored portfolio system: Excel raw input, normalized SQLite ledger, Python calculations, Streamlit decision interface, deterministic reporting, and optional Gemini narrative.
 
-The progression is intentional: **data discipline -> model discipline -> strategy discipline**.
+Algorithmic trading and backtesting material may be used as optional/additional material when available, but the third classroom session now centers on the Portfolio Management Cockpit.
 
-## Technologies used
+## Technologies Used
 
 - Python 3.x
 - pandas
 - numpy
 - matplotlib
 - seaborn
+- plotly
 - yfinance
 - numpy-financial
 - vectorbt
 - streamlit
 - google-genai
+- openpyxl
+- SQLite
 - Jupyter Notebook
 
-## How to run
+## Install For The Course Repository
 
 ```bash
 git clone https://github.com/juliovalerog/FinEngineering_AlgoTrading.git
 cd FinEngineering_AlgoTrading
 
 python -m venv .venv
-# Windows PowerShell
-.\.venv\Scripts\Activate.ps1
-# macOS / Linux
-# source .venv/bin/activate
-
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 jupyter notebook
 ```
 
 Then open the notebooks in `notebooks/` and run each notebook from top to bottom.
 
-## Notebook 1 data workflow
-
-Notebook 1 downloads market data programmatically with `yfinance` and also includes a local cache in `data/us_tech_watchlist_prices.csv` so the screening workflow remains reproducible if live download is temporarily unavailable.
-
-The screen starts from a broader peer set and narrows it to a smaller first-round watchlist, so the local cache is part of the reproducible analytical artifact rather than a convenience sample.
-
-## Run the LBO Streamlit demo
+## Run The LBO Streamlit Demo
 
 ```bash
-streamlit run app/streamlit_lbo_demo.py
+python -m streamlit run app/streamlit_lbo_demo.py
 ```
 
-The app mirrors the same case logic as `notebooks/02_lbo_model_python.ipynb` and is intended as a short end-of-class productization demo rather than the main teaching asset.
-Its purpose is to show how the same analytical engine can be packaged into a lightweight decision-support prototype without changing the underlying finance logic.
-The Streamlit UI now ships with a light custom theme defined in `.streamlit/config.toml`, plus app-level styling for friendlier chart and control colors during classroom demos.
+The LBO app mirrors the same case logic as `notebooks/02_lbo_model_python.ipynb` and is intended as a short productization demo rather than the main third-session teaching asset.
 
-## Optional Gemini reporting layer
-
-The notebook and the Streamlit app can generate a short, finance-oriented commentary on top of the quantitative outputs.
-
-Set the API key before running the Gemini section:
+## Run The Portfolio Management Cockpit Locally
 
 ```bash
-# Windows PowerShell
+cd portfolio_cockpit
+python -m streamlit run app.py
+```
+
+On Windows, if Application Control blocks `streamlit.exe`, use the helper launcher:
+
+```powershell
+.\run_app_windows.bat
+```
+
+The cockpit initializes a local SQLite database at `portfolio_cockpit/data/store/portfolio_mvp.sqlite` from the bundled Excel file in `portfolio_cockpit/data/input/Portfolio Example JULIO.xlsx`. The original Excel is raw input and is not modified. SQLite becomes the local system of record for the demo.
+
+Gemini reporting is optional and local-only unless explicitly configured with `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+
+## Deploy The Portfolio Management Cockpit On Streamlit Community Cloud
+
+Use these Streamlit Community Cloud settings:
+
+- Repository: `juliovalerog/FinEngineering_AlgoTrading`
+- Branch: `main`
+- Main file path: `portfolio_cockpit/app.py`
+
+For this public review deployment, publish without adding `GEMINI_API_KEY` or `GOOGLE_API_KEY` to Streamlit Cloud secrets. Leave Streamlit Cloud secrets empty. The public app should use the deterministic report by default, and Gemini will show as not configured. This is intentional.
+
+The bundled Excel data is public educational demo data and is required by the deployed app.
+
+## Optional Gemini Reporting Layer
+
+The LBO demo and Portfolio Management Cockpit can generate optional Gemini commentary on top of deterministic calculations.
+
+For local use only, set an API key before running the Gemini section:
+
+```powershell
 $env:GEMINI_API_KEY="your_api_key_here"
 # or
-# $env:GOOGLE_API_KEY="your_api_key_here"
-
-# macOS / Linux
-# export GEMINI_API_KEY="your_api_key_here"
-# or
-# export GOOGLE_API_KEY="your_api_key_here"
+$env:GOOGLE_API_KEY="your_api_key_here"
 ```
 
-If no key is present, the notebook and app fail gracefully and simply skip the AI-generated commentary.
-If the key is present but invalid, the app now surfaces a clearer credential error instead of the raw SDK exception.
+Do not commit API keys, `.streamlit/secrets.toml`, `.env`, or any credential file. If no key is present, the apps fall back gracefully to deterministic outputs.
 
-## Notes for students
+## Notes For Students
 
-These notebooks are not only coding examples. They are templates for **structured quantitative reasoning** in finance.
+These materials are templates for structured quantitative reasoning in finance. Pay attention to how the financial question is framed, why each transformation exists, how assumptions are made explicit, and how outputs are interpreted before conclusions are drawn.
 
-When reviewing each notebook, pay attention to:
-
-- how the financial question is framed,
-- why each library and transformation is used,
-- how assumptions are made explicit,
-- how outputs are interpreted before conclusions are drawn.
-
-In class, we prioritize clarity, reproducibility, and economic interpretation over unnecessary technical complexity.
+In class, we prioritize clarity, reproducibility, data quality, traceability, and economic interpretation over unnecessary technical complexity.

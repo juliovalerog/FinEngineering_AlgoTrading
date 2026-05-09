@@ -10,6 +10,12 @@ env/
 .deps/
 .tmp/
 
+# Local secrets and environment files
+.env
+*.env
+.streamlit/secrets.toml
+**/.streamlit/secrets.toml
+
 # Jupyter
 .ipynb_checkpoints/
 notebooks/02_lbo_model_python_solutions.ipynb

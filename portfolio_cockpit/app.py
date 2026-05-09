@@ -441,14 +441,8 @@ if public_demo_mode:
     st.info("Public demo mode: this Streamlit Community Cloud review app may not retain runtime changes. Trade commits are treated as session-level demo actions; deterministic reporting remains available.")
 
 with st.sidebar:
-    st.header("Cockpit Status")
     teaching_mode = st.toggle("Teaching Mode", value=True, help="Switch off for a cleaner analyst cockpit.")
-    st.write(f"Database: {db_status}")
-    st.write(f"Excel input: `{EXCEL_PATH.name}`")
-    st.write(f"SQLite: `{DB_PATH.name}`")
-    st.write(f"Mode: `{'Public demo' if public_demo_mode else 'Local SQLite'}`")
-    st.divider()
-    st.subheader("Global Display Filters")
+    st.subheader("Display Filters")
     st.caption("Filters affect displayed charts and tables. Headline portfolio KPIs remain full-portfolio unless a section states otherwise.")
     if not context["snapshots"].empty:
         snapshot_dates = pd.to_datetime(context["snapshots"]["date"], errors="coerce").dropna()
@@ -467,9 +461,6 @@ with st.sidebar:
     selected_sectors = st.multiselect("Sector", sectors)
     selected_sides = st.multiselect("Trade side", ["BUY", "SELL"], default=["BUY", "SELL"])
     open_positions_only = st.checkbox("Show open positions only", value=True)
-    st.divider()
-    if teaching_mode:
-        st.write("Navigation is organized as the same workflow students follow in class.")
 
 filtered_trades = display_filters.filter_trades(context["trades"], filter_date_range, selected_symbols, selected_sectors, selected_sides)
 filtered_positions = add_position_contributions(display_filters.filter_positions(context["positions"], selected_symbols, selected_sectors, open_positions_only))
@@ -484,31 +475,6 @@ error_count = int((issue_frame["severity"] == "Error").sum()) if not issue_frame
 warning_count = int((issue_frame["severity"] == "Warning").sum()) if not issue_frame.empty else 0
 data_quality_status = "Blocked" if error_count else ("Review" if warning_count else "Clean")
 
-st.markdown("### Executive Overview")
-overview_cols = st.columns(5)
-with overview_cols[0]:
-    kpi_card("Total value", _fmt_money(summary["total_portfolio_value"]), "Full portfolio")
-with overview_cols[1]:
-    kpi_card("Cash", _fmt_money(summary["cash"]), "Liquidity buffer")
-with overview_cols[2]:
-    kpi_card("Invested", _fmt_money(summary["invested_value"]), "Market exposure")
-with overview_cols[3]:
-    kpi_card("Portfolio return", _fmt_pct(risk["cumulative_return"]), "Since first snapshot")
-with overview_cols[4]:
-    kpi_card("Excess return", _fmt_pct(benchmark["excess_return"]), "Versus S&P 500")
-
-overview_cols = st.columns(5)
-with overview_cols[0]:
-    kpi_card("S&P 500 return", _fmt_pct(benchmark["cumulative_benchmark_return"]), "Local benchmark")
-with overview_cols[1]:
-    kpi_card("Sharpe", _fmt_num(risk["sharpe_ratio"]), "Risk-adjusted")
-with overview_cols[2]:
-    kpi_card("Max drawdown", _fmt_pct(risk["max_drawdown"]), "Peak to trough")
-with overview_cols[3]:
-    kpi_card("Positions", str(summary["open_positions"]), "Open holdings")
-with overview_cols[4]:
-    kpi_card("Top 5 concentration", _fmt_pct(summary["top_5_concentration"]), f"Data quality: {data_quality_status}")
-
 attention_items = []
 if error_count:
     attention_items.append(f"{error_count} blocking data-quality checks require review before relying on performance metrics.")
@@ -520,30 +486,107 @@ if not pd.isna(risk.get("max_drawdown")) and risk["max_drawdown"] < -0.1:
     attention_items.append("Drawdown profile deserves portfolio committee attention.")
 if not attention_items:
     attention_items.append("No blocking control issue is visible in the summary view; continue with lineage and attribution checks.")
-st.markdown("**What requires attention?**")
-for item in attention_items:
-    st.write(f"- {item}")
 
-tabs = st.tabs(
+visible_tabs = st.tabs(
     [
-        "Executive Snapshot",
-        "1. Excel to Portfolio System",
-        "2. Data Quality",
-        "3. Current Portfolio",
-        "4. Performance & Risk",
-        "5. Performance Attribution",
-        "6. Add New Trade",
-        "7. Executive Report",
-        "8. From MVP to Production",
+        "Home / Portfolio Cockpit",
+        "Data & Controls",
+        "Portfolio Analysis",
+        "Performance & Risk",
+        "Actions & Reporting",
     ]
 )
+tabs = [
+    visible_tabs[0],
+    visible_tabs[1],
+    visible_tabs[1],
+    visible_tabs[2],
+    visible_tabs[3],
+    visible_tabs[2],
+    visible_tabs[4],
+    visible_tabs[4],
+    visible_tabs[4],
+]
 
 with tabs[0]:
+    teaching_note(
+        "Excel is the input. SQLite is the system of record. Python is the engine. Streamlit is the interface. Gemini is the reporting assistant.",
+        teaching_mode,
+    )
     st.subheader("Portfolio Committee Snapshot")
-    st.plotly_chart(charts.portfolio_value_chart(filtered_snapshots), width="stretch", key="executive_portfolio_value_chart")
+    overview_cols = st.columns(5)
+    with overview_cols[0]:
+        kpi_card("Total value", _fmt_money(summary["total_portfolio_value"]), "Full portfolio")
+    with overview_cols[1]:
+        kpi_card("Cash", _fmt_money(summary["cash"]), "Liquidity buffer")
+    with overview_cols[2]:
+        kpi_card("Invested", _fmt_money(summary["invested_value"]), "Market exposure")
+    with overview_cols[3]:
+        kpi_card("Portfolio return", _fmt_pct(risk["cumulative_return"]), "Since first snapshot")
+    with overview_cols[4]:
+        kpi_card("Excess return", _fmt_pct(benchmark["excess_return"]), "Versus S&P 500")
+
+    overview_cols = st.columns(5)
+    with overview_cols[0]:
+        kpi_card("S&P 500 return", _fmt_pct(benchmark["cumulative_benchmark_return"]), "Local benchmark")
+    with overview_cols[1]:
+        kpi_card("Sharpe", _fmt_num(risk["sharpe_ratio"]), "Risk-adjusted")
+    with overview_cols[2]:
+        kpi_card("Max drawdown", _fmt_pct(risk["max_drawdown"]), "Peak to trough")
+    with overview_cols[3]:
+        kpi_card("Positions", str(summary["open_positions"]), "Open holdings")
+    with overview_cols[4]:
+        kpi_card("Top 5 concentration", _fmt_pct(summary["top_5_concentration"]), f"Data quality: {data_quality_status}")
+
+    chart_cols = st.columns(2)
+    with chart_cols[0]:
+        st.plotly_chart(charts.portfolio_value_chart(filtered_snapshots), width="stretch", key="home_portfolio_value_chart")
+    with chart_cols[1]:
+        st.plotly_chart(charts.cumulative_return_vs_benchmark_chart(filtered_snapshots), width="stretch", key="home_cumulative_vs_benchmark_chart")
+
+    st.markdown("**What requires attention?**")
+    for item in attention_items:
+        st.write(f"- {item}")
+with tabs[1]:
+    teaching_note(
+        "The Excel is the operational input. The professional workflow starts when we separate raw data, validation, calculations, storage and reporting.",
+        teaching_mode,
+    )
+    if teaching_mode:
+        st.markdown(
+            '<div class="pipeline">Excel -> SQLite ledger -> positions -> valuation -> performance -> risk -> report</div>',
+            unsafe_allow_html=True,
+        )
+    st.write("")
+
+    config = storage.get_configuration(DB_PATH)
+    loaded_sheets = config.get("loaded_sheets")
+    if loaded_sheets:
+        sheet_frame = pd.DataFrame(json.loads(loaded_sheets))
+    else:
+        sheet_frame = data_loader.sheet_metadata(EXCEL_PATH)
+    st.subheader("Loaded workbook structure")
+    st.dataframe(sheet_frame, hide_index=True, width="stretch")
+
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Database status", db_status)
+    col_b.metric("Ledger events", len(context["trades"]))
+    col_c.metric("Snapshots", len(context["snapshots"]))
+
+    st.caption("Reset rebuilds the local SQLite database from the original Excel input. Market refresh updates SQLite; it does not modify the Excel.")
+    if st.button("Reset to original Excel state"):
+        if public_demo_mode:
+            st.session_state["session_trades"] = []
+            st.info("Public demo mode reset: session-level demo trades were cleared. The bundled Excel source remains unchanged.")
+        else:
+            storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
+            storage.write_audit_log("RESET", "Demo database reset from immutable Excel input.", DB_PATH)
+            st.success("Local SQLite database rebuilt from the original Excel input. Yahoo-updated prices and extended snapshots were removed from the live demo database.")
+        st.rerun()
+
     st.subheader("Market Data Refresh")
     st.warning(
-        "Yahoo Finance refresh is optional and intended for educational/demo use. The Excel remains the initial source; Yahoo prices are used only as a market-data update layer."
+        "Yahoo Finance refresh is optional and intended for educational/demo use. Excel initializes the system, SQLite is the live state, and Yahoo updates SQLite without modifying the Excel file."
     )
     open_symbols_for_refresh = market_data.get_open_position_symbols(context["positions"])
     coverage = price_source_coverage(context["prices"], context["positions"])
@@ -600,55 +643,10 @@ with tabs[0]:
             st.warning("Some Yahoo Finance requests failed. The app kept running and used local data where available.")
             st.dataframe(pd.DataFrame(refresh_result["failed_symbols"]), hide_index=True, width="stretch")
 
-    st.dataframe(
-        full_positions_with_contributions[["symbol", "sector", "market_value", "unrealized_pnl", "weight", "market_value_contribution", "absolute_unrealized_pnl_contribution"]]
-        if not full_positions_with_contributions.empty
-        else full_positions_with_contributions,
-        hide_index=True,
-        width="stretch",
-    )
-
-with tabs[1]:
-    teaching_note(
-        "The Excel is the operational input. The professional workflow starts when we separate raw data, validation, calculations, storage and reporting.",
-        teaching_mode,
-    )
-    if teaching_mode:
-        st.markdown(
-            '<div class="pipeline">Excel -> SQLite ledger -> positions -> valuation -> performance -> risk -> report</div>',
-            unsafe_allow_html=True,
-        )
-    st.write("")
-
-    config = storage.get_configuration(DB_PATH)
-    loaded_sheets = config.get("loaded_sheets")
-    if loaded_sheets:
-        sheet_frame = pd.DataFrame(json.loads(loaded_sheets))
-    else:
-        sheet_frame = data_loader.sheet_metadata(EXCEL_PATH)
-    st.subheader("Loaded workbook structure")
-    st.dataframe(sheet_frame, hide_index=True, width="stretch")
-
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Database status", db_status)
-    col_b.metric("Ledger events", len(context["trades"]))
-    col_c.metric("Snapshots", len(context["snapshots"]))
-
-    st.caption("Reset rebuilds the local SQLite database from the original Excel input. Market refresh updates SQLite; it does not modify the Excel.")
-    if st.button("Reset to original Excel state"):
-        if public_demo_mode:
-            st.session_state["session_trades"] = []
-            st.info("Public demo mode reset: session-level demo trades were cleared. The bundled Excel source remains unchanged.")
-        else:
-            storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
-            storage.write_audit_log("RESET", "Demo database reset from immutable Excel input.", DB_PATH)
-            st.success("Local SQLite database rebuilt from the original Excel input. Yahoo-updated prices and extended snapshots were removed from the live demo database.")
-        st.rerun()
-
     st.subheader("Initialization and reset audit log")
     audit = storage.get_audit_log(DB_PATH)
     if not audit.empty:
-        init_audit = audit[audit["event_type"].isin(["INITIALIZE", "RESET"])]
+        init_audit = audit
         st.dataframe(init_audit, hide_index=True, width="stretch")
     else:
         st.info("No audit events have been recorded yet.")
@@ -860,6 +858,10 @@ with tabs[6]:
         st.dataframe(st.session_state["last_impact"], width="stretch")
 
 with tabs[7]:
+    teaching_note(
+        "Python calculates the facts. Gemini drafts the narrative from validated summary data and remains optional.",
+        teaching_mode,
+    )
     st.markdown(
         """
         **Educational and privacy disclaimer**
