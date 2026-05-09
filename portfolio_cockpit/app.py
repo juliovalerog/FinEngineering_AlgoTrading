@@ -305,7 +305,17 @@ def recent_trade_impact_summary(trades: pd.DataFrame) -> pd.DataFrame:
 
 
 def price_source_coverage(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.DataFrame:
-    columns = ["symbol", "latest_price_date", "latest_price", "source", "observation_count"]
+    columns = [
+        "symbol",
+        "latest_price_date",
+        "latest_price",
+        "latest_source",
+        "latest_source_type",
+        "yahoo_rows",
+        "excel_rows",
+        "other_rows",
+        "observation_count",
+    ]
     if prices is None or prices.empty:
         return pd.DataFrame(columns=columns)
     data = prices.copy()
@@ -315,11 +325,30 @@ def price_source_coverage(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.D
     data = data.dropna(subset=["date", "symbol", "price"])
     if data.empty:
         return pd.DataFrame(columns=columns)
-    latest = data.sort_values(["date", "source"]).groupby("symbol", as_index=False).tail(1)
-    counts = data.groupby("symbol", as_index=False).size().rename(columns={"size": "observation_count"})
+    effective = portfolio_engine.get_effective_daily_prices(data)
+    effective["date"] = pd.to_datetime(effective["date"], errors="coerce")
+    latest = effective.sort_values(["date", "source"]).groupby("symbol", as_index=False).tail(1)
+    source_counts = data.assign(
+        is_yahoo=data["source"].astype(str).str.lower().eq("yahoo finance"),
+        is_excel=data["source"].astype(str).str.lower().eq("precios sheet"),
+    )
+    counts = source_counts.groupby("symbol", as_index=False).agg(
+        observation_count=("price", "size"),
+        yahoo_rows=("is_yahoo", "sum"),
+        excel_rows=("is_excel", "sum"),
+    )
+    counts["other_rows"] = counts["observation_count"] - counts["yahoo_rows"] - counts["excel_rows"]
     coverage = latest.merge(counts, on="symbol", how="left")
-    coverage = coverage.rename(columns={"date": "latest_price_date", "price": "latest_price"})
+    coverage = coverage.rename(columns={"date": "latest_price_date", "price": "latest_price", "source": "latest_source"})
     coverage["latest_price_date"] = coverage["latest_price_date"].dt.date.astype(str)
+    coverage["latest_source_type"] = np.select(
+        [
+            coverage["latest_source"].astype(str).str.lower().eq("yahoo finance"),
+            coverage["latest_source"].astype(str).str.lower().eq("precios sheet"),
+        ],
+        ["Yahoo Finance", "Precios sheet"],
+        default="Other",
+    )
     open_symbols = market_data.get_open_position_symbols(positions)
     if open_symbols:
         coverage = coverage[coverage["symbol"].isin(open_symbols)]
@@ -519,10 +548,13 @@ with tabs[0]:
     open_symbols_for_refresh = market_data.get_open_position_symbols(context["positions"])
     coverage = price_source_coverage(context["prices"], context["positions"])
     benchmark_latest_date = market_data.get_last_benchmark_date(context["benchmark_prices"])
-    col_a, col_b, col_c = st.columns(3)
+    snapshot_dates = pd.to_datetime(context["snapshots"].get("date"), errors="coerce").dropna() if not context["snapshots"].empty else pd.Series(dtype="datetime64[ns]")
+    latest_snapshot_date = snapshot_dates.max().date().isoformat() if not snapshot_dates.empty else "n/a"
+    col_a, col_b, col_c, col_d = st.columns(4)
     col_a.metric("Open tickers eligible", len(open_symbols_for_refresh))
     col_b.metric("S&P 500 latest date", benchmark_latest_date.isoformat() if benchmark_latest_date else "n/a")
     col_c.metric("Benchmark source", "^GSPC / S&P 500")
+    col_d.metric("Latest portfolio snapshot", latest_snapshot_date)
     st.caption("Only tickers with open positions are refreshed. Closed historical trade symbols are not requested from Yahoo Finance.")
     st.write("Open position tickers:", ", ".join(open_symbols_for_refresh) if open_symbols_for_refresh else "No open tickers available.")
     st.subheader("Price source coverage")
@@ -536,6 +568,10 @@ with tabs[0]:
     if "last_market_refresh_result" in st.session_state:
         refresh_result = st.session_state["last_market_refresh_result"]
         st.write("Latest refresh status:", refresh_result.get("status", "unknown"))
+        before_snapshot = refresh_result.get("latest_snapshot_date_before_refresh")
+        after_snapshot = refresh_result.get("latest_snapshot_date_after_refresh")
+        snapshots_extended = bool(before_snapshot and after_snapshot and pd.to_datetime(after_snapshot) > pd.to_datetime(before_snapshot))
+        st.write(f"Snapshots extended after refresh: {'Yes' if snapshots_extended else 'No'}")
         if refresh_result.get("messages"):
             for message in refresh_result["messages"]:
                 st.write(f"- {message}")

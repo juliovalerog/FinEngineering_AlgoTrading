@@ -60,3 +60,75 @@ def test_trade_simulation_does_not_mutate_original_ledger() -> None:
     assert len(trades) == original_count
     assert len(simulated["trades"]) == original_count + 1
     assert simulated["positions"].iloc[0]["quantity"] == 15
+
+
+def test_effective_prices_prioritize_yahoo_over_excel() -> None:
+    prices = pd.DataFrame(
+        [
+            {"date": "2026-01-02", "symbol": "ABC", "price": 100, "source": "Precios sheet"},
+            {"date": "2026-01-02", "symbol": "ABC", "price": 150, "source": "Yahoo Finance"},
+        ]
+    )
+
+    effective = portfolio_engine.get_effective_daily_prices(prices)
+
+    assert len(effective) == 1
+    assert effective.iloc[0]["price"] == 150
+    assert effective.iloc[0]["source"] == "Yahoo Finance"
+
+
+def test_latest_price_logic_uses_yahoo_when_sources_overlap() -> None:
+    trades = pd.DataFrame([_trade("ABC", "BUY", "2026-01-01", 10, 100)])
+    prices = pd.DataFrame(
+        [
+            {"date": "2026-01-02", "symbol": "ABC", "price": 100, "source": "Precios sheet"},
+            {"date": "2026-01-02", "symbol": "ABC", "price": 150, "source": "Yahoo Finance"},
+        ]
+    )
+
+    positions = portfolio_engine.compute_positions(trades, prices, as_of_date="2026-01-02")
+
+    assert positions.iloc[0]["latest_price"] == 150
+    assert positions.iloc[0]["market_value"] == 1500
+
+
+def test_daily_mark_to_market_snapshots_extend_after_excel_snapshot() -> None:
+    trades = pd.DataFrame([_trade("ABC", "BUY", "2026-01-01", 10, 100)])
+    prices = pd.DataFrame(
+        [
+            {"date": "2026-01-02", "symbol": "ABC", "price": 110, "source": "Precios sheet"},
+            {"date": "2026-01-03", "symbol": "ABC", "price": 120, "source": "Yahoo Finance"},
+            {"date": "2026-01-04", "symbol": "ABC", "price": 130, "source": "Yahoo Finance"},
+        ]
+    )
+    benchmark_prices = pd.DataFrame(
+        [
+            {"date": "2026-01-02", "benchmark": "S&P 500", "price": 100, "source": "Portfolio sheet"},
+            {"date": "2026-01-04", "benchmark": "S&P 500", "price": 110, "source": "Yahoo Finance"},
+        ]
+    )
+    existing_snapshots = pd.DataFrame(
+        [
+            {
+                "date": "2026-01-02",
+                "invested_value": 1100,
+                "cash": 999000,
+                "total_portfolio_value": 1000100,
+                "portfolio_return": 0.0,
+                "benchmark_return": 0.0,
+            }
+        ]
+    )
+
+    snapshots = portfolio_engine.compute_daily_mark_to_market_snapshots(
+        trades,
+        prices,
+        benchmark_prices=benchmark_prices,
+        existing_snapshots=existing_snapshots,
+    )
+
+    assert snapshots["date"].tolist() == ["2026-01-02", "2026-01-03", "2026-01-04"]
+    assert snapshots["date"].is_unique
+    latest = snapshots[snapshots["date"] == "2026-01-04"].iloc[0]
+    assert latest["total_portfolio_value"] == 1000300
+    assert np.isclose(latest["benchmark_return"], 0.10)

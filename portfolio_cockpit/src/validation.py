@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from . import portfolio_engine
+
 
 def _issue(
     severity: str,
@@ -218,6 +220,62 @@ def run_data_quality_checks(
                 recommendation="Use cached Excel prices or connect a controlled market-data provider.",
             )
         )
+    elif positions is not None and not positions.empty:
+        effective_prices = portfolio_engine.get_effective_daily_prices(prices)
+        open_positions = positions.copy()
+        open_positions["quantity"] = pd.to_numeric(open_positions["quantity"], errors="coerce").fillna(0)
+        open_symbols = sorted(open_positions.loc[open_positions["quantity"] > 0, "symbol"].dropna().astype(str).str.upper().unique().tolist())
+        priced_symbols = set(effective_prices["symbol"].dropna().astype(str).str.upper()) if not effective_prices.empty else set()
+        missing_price_symbols = [symbol for symbol in open_symbols if symbol not in priced_symbols]
+        if missing_price_symbols:
+            issues.append(
+                _issue(
+                    "Warning",
+                    "open_position_without_market_price",
+                    f"{len(missing_price_symbols)} open positions do not have any market price observation.",
+                    recommendation="Load an Excel cached price or refresh market data before relying on valuation.",
+                    affected_symbols=missing_price_symbols,
+                )
+            )
+
+        if portfolio_snapshots is not None and not portfolio_snapshots.empty and not effective_prices.empty:
+            snapshot_dates = pd.to_datetime(portfolio_snapshots["date"], errors="coerce").dropna()
+            latest_snapshot = snapshot_dates.max() if not snapshot_dates.empty else None
+            stale_symbols: list[str] = []
+            if latest_snapshot is not None:
+                effective_prices["date"] = pd.to_datetime(effective_prices["date"], errors="coerce")
+                for symbol in open_symbols:
+                    symbol_dates = effective_prices.loc[effective_prices["symbol"] == symbol, "date"].dropna()
+                    if not symbol_dates.empty and symbol_dates.max() < latest_snapshot:
+                        stale_symbols.append(symbol)
+                if stale_symbols:
+                    issues.append(
+                        _issue(
+                            "Warning",
+                            "open_position_price_older_than_snapshot",
+                            f"{len(stale_symbols)} open positions have latest prices older than the latest portfolio snapshot.",
+                            recommendation="Refresh market data or confirm whether the latest snapshot should use stale prices.",
+                            affected_symbols=stale_symbols,
+                        )
+                    )
+
+        source_counts = prices.copy()
+        if {"date", "symbol", "source"}.issubset(source_counts.columns):
+            source_counts["date"] = pd.to_datetime(source_counts["date"], errors="coerce")
+            source_counts["symbol"] = source_counts["symbol"].astype(str).str.upper()
+            source_counts = source_counts.dropna(subset=["date", "symbol", "source"])
+            source_pairs = source_counts.groupby(["date", "symbol"])["source"].nunique().reset_index(name="source_count")
+            duplicated_sources = source_pairs[source_pairs["source_count"] > 1]
+            if not duplicated_sources.empty:
+                issues.append(
+                    _issue(
+                        "Warning",
+                        "duplicate_prices_resolved_by_source_priority",
+                        f"{len(duplicated_sources)} date/symbol price observations exist in multiple sources and were resolved by source priority.",
+                        recommendation="Review source coverage; Yahoo Finance overrides the Excel Precios sheet for identical date/symbol observations.",
+                        affected_symbols=duplicated_sources["symbol"].dropna().astype(str).unique().tolist(),
+                    )
+                )
 
     if benchmark_prices is None or benchmark_prices.empty:
         issues.append(
@@ -228,6 +286,18 @@ def run_data_quality_checks(
                 recommendation="Load benchmark data from Excel or a vetted local cache before discussing relative performance.",
             )
         )
+    elif portfolio_snapshots is not None and not portfolio_snapshots.empty:
+        snapshot_dates = pd.to_datetime(portfolio_snapshots["date"], errors="coerce").dropna()
+        benchmark_dates = pd.to_datetime(benchmark_prices["date"], errors="coerce").dropna()
+        if not snapshot_dates.empty and not benchmark_dates.empty and benchmark_dates.max() < snapshot_dates.max():
+            issues.append(
+                _issue(
+                    "Warning",
+                    "benchmark_older_than_portfolio_snapshot",
+                    "The latest S&P 500 benchmark observation is older than the latest portfolio snapshot.",
+                    recommendation="Refresh benchmark data or explain that relative performance is based on stale benchmark data.",
+                )
+            )
 
     incomplete = trades[
         trades["status"].astype(str).str.contains("INCOMPLETE", case=False, na=False)

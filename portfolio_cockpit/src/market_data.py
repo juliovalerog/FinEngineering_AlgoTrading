@@ -181,8 +181,11 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
     prices = storage.get_prices(db_path)
     benchmark_prices = storage.get_benchmark_prices(db_path)
     positions = storage.get_positions(db_path)
+    snapshots = storage.get_portfolio_snapshots(db_path)
     symbols = get_open_position_symbols(positions)
     today = date.today()
+    snapshot_dates = pd.to_datetime(snapshots.get("date"), errors="coerce").dropna() if snapshots is not None and not snapshots.empty else pd.Series(dtype="datetime64[ns]")
+    latest_snapshot_date = snapshot_dates.max().date().isoformat() if not snapshot_dates.empty else None
     result = {
         "status": "not_started",
         "open_symbols": symbols,
@@ -196,6 +199,8 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
         "messages": [],
         "prices_upserted": 0,
         "benchmark_upserted": 0,
+        "latest_snapshot_date_before_refresh": latest_snapshot_date,
+        "latest_snapshot_date_after_refresh": latest_snapshot_date,
     }
 
     downloaded_prices: list[pd.DataFrame] = []
@@ -247,9 +252,14 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
             f"Yahoo Finance refresh upserted {price_count} price rows and {benchmark_count} S&P 500 rows.",
             db_path,
         )
-        storage.recompute_all_after_trade(db_path)
+        recomputed = storage.recompute_all_after_market_data_refresh(db_path)
+        snapshots = recomputed.get("portfolio_snapshots")
+        if snapshots is not None and not snapshots.empty:
+            latest_snapshot = pd.to_datetime(snapshots["date"], errors="coerce").dropna()
+            if not latest_snapshot.empty:
+                result["latest_snapshot_date_after_refresh"] = latest_snapshot.max().date().isoformat()
         result["status"] = "refreshed"
-        result["messages"].append("Market data refresh completed and portfolio calculations were recomputed.")
+        result["messages"].append("Market data refresh completed and daily mark-to-market snapshots were recomputed.")
     else:
         result["status"] = "no_update"
         if not result["messages"]:

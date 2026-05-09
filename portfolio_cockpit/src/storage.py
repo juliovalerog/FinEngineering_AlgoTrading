@@ -324,6 +324,30 @@ def recompute_all_after_trade(db_path: Path | str | None = None) -> dict[str, pd
     return recalculated
 
 
+def recompute_all_after_market_data_refresh(db_path: Path | str | None = None) -> dict[str, pd.DataFrame]:
+    """Recompute positions and extend snapshots after market-data updates."""
+    trades = get_trades(db_path)
+    prices = get_prices(db_path)
+    benchmark_prices = get_benchmark_prices(db_path)
+    existing_snapshots = get_portfolio_snapshots(db_path)
+    positions = portfolio_engine.compute_positions(trades, prices)
+    snapshots = portfolio_engine.compute_daily_mark_to_market_snapshots(
+        trades,
+        prices=prices,
+        benchmark_prices=benchmark_prices,
+        existing_snapshots=existing_snapshots,
+        initial_cash=get_initial_cash(db_path),
+    )
+    write_positions(positions, db_path)
+    write_portfolio_snapshots(snapshots, db_path)
+    write_audit_log(
+        "MARK_TO_MARKET_RECOMPUTE",
+        "Market-data refresh triggered daily mark-to-market recomputation from effective prices.",
+        db_path,
+    )
+    return {"positions": positions, "portfolio_snapshots": snapshots}
+
+
 def reset_database_from_excel(
     excel_path: Path | str | None = None,
     db_path: Path | str | None = None,
