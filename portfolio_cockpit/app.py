@@ -568,10 +568,22 @@ with tabs[0]:
     if "last_market_refresh_result" in st.session_state:
         refresh_result = st.session_state["last_market_refresh_result"]
         st.write("Latest refresh status:", refresh_result.get("status", "unknown"))
-        before_snapshot = refresh_result.get("latest_snapshot_date_before_refresh")
-        after_snapshot = refresh_result.get("latest_snapshot_date_after_refresh")
-        snapshots_extended = bool(before_snapshot and after_snapshot and pd.to_datetime(after_snapshot) > pd.to_datetime(before_snapshot))
+        before_snapshot = refresh_result.get("previous_latest_snapshot_date") or refresh_result.get("latest_snapshot_date_before_refresh")
+        after_snapshot = refresh_result.get("new_latest_snapshot_date") or refresh_result.get("latest_snapshot_date_after_refresh")
+        snapshots_extended = bool(refresh_result.get("snapshots_extended")) or bool(before_snapshot and after_snapshot and pd.to_datetime(after_snapshot) > pd.to_datetime(before_snapshot))
+        refresh_cols = st.columns(3)
+        refresh_cols[0].metric("Previous snapshot date", before_snapshot or "n/a")
+        refresh_cols[1].metric("New snapshot date", after_snapshot or "n/a")
+        refresh_cols[2].metric("Snapshot rows", refresh_result.get("snapshot_rows_after", "n/a"))
         st.write(f"Snapshots extended after refresh: {'Yes' if snapshots_extended else 'No'}")
+        if (
+            refresh_result.get("status") == "refreshed"
+            and not snapshots_extended
+            and (refresh_result.get("prices_upserted", 0) or refresh_result.get("benchmark_upserted", 0))
+        ):
+            st.warning(
+                "New market rows were stored, but snapshots were not extended. This usually means the new rows did not fall after the current latest portfolio snapshot or did not provide a valuation-compatible date for open positions."
+            )
         if refresh_result.get("messages"):
             for message in refresh_result["messages"]:
                 st.write(f"- {message}")
@@ -621,14 +633,15 @@ with tabs[1]:
     col_b.metric("Ledger events", len(context["trades"]))
     col_c.metric("Snapshots", len(context["snapshots"]))
 
-    if st.button("Reset demo database from Excel"):
+    st.caption("Reset rebuilds the local SQLite database from the original Excel input. Market refresh updates SQLite; it does not modify the Excel.")
+    if st.button("Reset to original Excel state"):
         if public_demo_mode:
             st.session_state["session_trades"] = []
             st.info("Public demo mode reset: session-level demo trades were cleared. The bundled Excel source remains unchanged.")
         else:
             storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
             storage.write_audit_log("RESET", "Demo database reset from immutable Excel input.", DB_PATH)
-            st.success("Demo database rebuilt from Excel.")
+            st.success("Local SQLite database rebuilt from the original Excel input. Yahoo-updated prices and extended snapshots were removed from the live demo database.")
         st.rerun()
 
     st.subheader("Initialization and reset audit log")

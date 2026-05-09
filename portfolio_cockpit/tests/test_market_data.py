@@ -100,3 +100,51 @@ def test_empty_yahoo_response_handled_gracefully(tmp_path: Path, monkeypatch) ->
     assert result["status"] == "no_update"
     assert result["prices_upserted"] == 0
     assert result["benchmark_upserted"] == 0
+
+
+def test_market_refresh_does_not_reset_or_overwrite_trades(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "portfolio.sqlite"
+    storage.init_database(db_path)
+    storage.insert_trade(_trade("buy-open", "OPEN", "BUY", "2026-04-01"), db_path)
+    storage.write_positions(
+        pd.DataFrame(
+            [
+                {"as_of_date": "2026-04-17", "symbol": "OPEN", "sector": "Test", "quantity": 10, "average_cost": 100, "latest_price": 100, "market_value": 1000, "unrealized_pnl": 0, "weight": 1},
+            ]
+        ),
+        db_path,
+    )
+    storage.write_portfolio_snapshots(
+        pd.DataFrame(
+            [
+                {"date": "2026-04-17", "invested_value": 1000, "cash": 999000, "total_portfolio_value": 1000000, "portfolio_return": 0, "benchmark_return": 0},
+            ]
+        ),
+        db_path,
+    )
+
+    def fail_reset(*args, **kwargs):
+        raise AssertionError("market refresh must not rebuild SQLite from Excel")
+
+    monkeypatch.setattr(storage, "reset_database_from_excel", fail_reset)
+    monkeypatch.setattr(
+        market_data,
+        "download_daily_prices_from_yahoo",
+        lambda symbols, start_date, end_date=None: pd.DataFrame(
+            [{"date": "2026-05-08", "symbol": symbols[0], "price": 125, "source": "Yahoo Finance"}]
+        ),
+    )
+    monkeypatch.setattr(
+        market_data,
+        "download_sp500_reference_from_yahoo",
+        lambda start_date, end_date=None: pd.DataFrame(
+            [{"date": "2026-05-08", "benchmark": "S&P 500", "price": 105, "source": "Yahoo Finance"}]
+        ),
+    )
+
+    result = market_data.refresh_open_position_prices(db_path)
+
+    assert result["status"] == "refreshed"
+    assert result["snapshots_extended"] is True
+    assert len(storage.get_trades(db_path)) == 1
+    assert storage.get_trades(db_path).iloc[0]["trade_id"] == "buy-open"

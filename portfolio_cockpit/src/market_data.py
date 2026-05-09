@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
-from . import storage
+from . import portfolio_engine, storage
 
 
 YAHOO_SOURCE = "Yahoo Finance"
@@ -175,6 +175,23 @@ def _latest_price_coverage(prices: pd.DataFrame, symbols: list[str]) -> dict[str
     return {symbol: (last.isoformat() if (last := get_last_price_date(prices, symbol)) else None) for symbol in symbols}
 
 
+def _latest_available_market_date(prices: pd.DataFrame, benchmark_prices: pd.DataFrame, symbols: list[str]) -> date | None:
+    dates: list[pd.Timestamp] = []
+    effective_prices = portfolio_engine.get_effective_daily_prices(prices)
+    if not effective_prices.empty and symbols:
+        price_dates = effective_prices[effective_prices["symbol"].isin(symbols)]["date"]
+        parsed_prices = pd.to_datetime(price_dates, errors="coerce").dropna()
+        if not parsed_prices.empty:
+            dates.append(parsed_prices.max())
+    if benchmark_prices is not None and not benchmark_prices.empty:
+        parsed_benchmark = pd.to_datetime(benchmark_prices.get("date"), errors="coerce").dropna()
+        if not parsed_benchmark.empty:
+            dates.append(parsed_benchmark.max())
+    if not dates:
+        return None
+    return max(dates).date()
+
+
 def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
     """Refresh Yahoo daily data for open positions and the S&P 500 reference only."""
     trades = storage.get_trades(db_path)
@@ -199,8 +216,13 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
         "messages": [],
         "prices_upserted": 0,
         "benchmark_upserted": 0,
+        "previous_latest_snapshot_date": latest_snapshot_date,
+        "new_latest_snapshot_date": latest_snapshot_date,
         "latest_snapshot_date_before_refresh": latest_snapshot_date,
         "latest_snapshot_date_after_refresh": latest_snapshot_date,
+        "snapshots_extended": False,
+        "snapshot_rows_before": 0 if snapshots is None else int(len(snapshots)),
+        "snapshot_rows_after": 0 if snapshots is None else int(len(snapshots)),
     }
 
     downloaded_prices: list[pd.DataFrame] = []
@@ -246,20 +268,34 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
     result["benchmark_upserted"] = benchmark_count
     result["benchmark_rows"] = 0 if benchmark_frame.empty else int(len(benchmark_frame))
 
-    if price_count or benchmark_count:
+    latest_market_date = _latest_available_market_date(storage.get_prices(db_path), storage.get_benchmark_prices(db_path), symbols)
+    snapshot_needs_recompute = bool(
+        latest_market_date
+        and (
+            not latest_snapshot_date
+            or pd.to_datetime(latest_market_date) > pd.to_datetime(latest_snapshot_date)
+        )
+    )
+    if price_count or benchmark_count or snapshot_needs_recompute:
         storage.write_audit_log(
             "MARKET_DATA_REFRESH",
             f"Yahoo Finance refresh upserted {price_count} price rows and {benchmark_count} S&P 500 rows.",
             db_path,
         )
         recomputed = storage.recompute_all_after_market_data_refresh(db_path)
+        recompute_summary = recomputed.get("summary", {})
+        result.update(recompute_summary)
         snapshots = recomputed.get("portfolio_snapshots")
         if snapshots is not None and not snapshots.empty:
             latest_snapshot = pd.to_datetime(snapshots["date"], errors="coerce").dropna()
             if not latest_snapshot.empty:
                 result["latest_snapshot_date_after_refresh"] = latest_snapshot.max().date().isoformat()
+                result["new_latest_snapshot_date"] = result["latest_snapshot_date_after_refresh"]
         result["status"] = "refreshed"
-        result["messages"].append("Market data refresh completed and daily mark-to-market snapshots were recomputed.")
+        if price_count or benchmark_count:
+            result["messages"].append("Market data refresh completed and daily mark-to-market snapshots were recomputed.")
+        else:
+            result["messages"].append("No new Yahoo rows were inserted, but snapshots were recomputed from existing market data.")
     else:
         result["status"] = "no_update"
         if not result["messages"]:

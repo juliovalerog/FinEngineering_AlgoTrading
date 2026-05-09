@@ -68,7 +68,7 @@ def get_effective_daily_prices(prices: pd.DataFrame | None) -> pd.DataFrame:
     data = data.sort_values(["date", "symbol", "_source_priority", "_row_order"])
     effective = data.groupby(["date", "symbol"], as_index=False).first()
     effective["date"] = effective["date"].dt.date.astype(str)
-    return effective[columns].sort_values(["symbol", "date"]).reset_index(drop=True)
+    return effective[columns].sort_values(["date", "symbol"]).reset_index(drop=True)
 
 
 def _prepare_trades(trades: pd.DataFrame, as_of_date: str | None = None) -> pd.DataFrame:
@@ -348,9 +348,9 @@ def compute_daily_mark_to_market_snapshots(
 ) -> pd.DataFrame:
     """Build daily portfolio snapshots from effective market-price dates.
 
-    Existing workbook snapshots are preserved. New market-data dates extend the
-    time series after the last existing snapshot, turning Yahoo refreshes into a
-    mark-to-market update rather than only a latest-price update.
+    Excel snapshots remain useful as the initial classroom history. Market-data
+    rows generated from the effective price table replace overlapping dates and
+    extend the series beyond the workbook whenever Yahoo updates are available.
     """
     base = pd.DataFrame()
     if existing_snapshots is not None and not existing_snapshots.empty:
@@ -368,7 +368,7 @@ def compute_daily_mark_to_market_snapshots(
     effective_prices = get_effective_daily_prices(prices)
     effective_benchmark = _effective_benchmark_prices(benchmark_prices)
 
-    current_positions = compute_positions(trades, prices)
+    current_positions = compute_positions(trades, effective_prices)
     open_symbols = set(current_positions["symbol"].astype(str).str.upper()) if not current_positions.empty else set()
     market_dates: set[pd.Timestamp] = set()
     if not effective_prices.empty and open_symbols:
@@ -382,7 +382,7 @@ def compute_daily_mark_to_market_snapshots(
     if start_date:
         start_ts = pd.to_datetime(start_date, errors="coerce")
     elif not base.empty:
-        start_ts = base["date"].max() + pd.Timedelta(days=1)
+        start_ts = min(base["date"].min(), prepared["trade_date"].min())
     else:
         start_ts = prepared["trade_date"].min()
     end_ts = pd.to_datetime(end_date, errors="coerce") if end_date else None
@@ -399,19 +399,13 @@ def compute_daily_mark_to_market_snapshots(
             continue
         snapshot_dates.append(market_date.date())
 
-    if not base.empty:
-        first_value = float(pd.to_numeric(base["total_portfolio_value"], errors="coerce").dropna().iloc[0])
-    else:
-        first_value = initial_cash
-
     benchmark_lookup = effective_benchmark.copy()
     if not benchmark_lookup.empty:
         benchmark_lookup["date"] = pd.to_datetime(benchmark_lookup["date"], errors="coerce")
         benchmark_lookup["price"] = pd.to_numeric(benchmark_lookup["price"], errors="coerce")
         benchmark_lookup = benchmark_lookup.dropna(subset=["date", "price"]).sort_values("date")
-        first_benchmark = float(benchmark_lookup["price"].iloc[0]) if not benchmark_lookup.empty else np.nan
     else:
-        first_benchmark = np.nan
+        benchmark_lookup = pd.DataFrame(columns=["date", "price"])
 
     rows: list[dict[str, Any]] = []
     for snapshot_date in snapshot_dates:
@@ -420,19 +414,14 @@ def compute_daily_mark_to_market_snapshots(
         invested_value = 0.0 if positions.empty else float(positions["market_value"].sum())
         cash = compute_cash(trades, initial_cash=initial_cash, as_of_date=as_of)
         total_value = invested_value + cash
-        benchmark_return = np.nan
-        if not benchmark_lookup.empty and not np.isnan(first_benchmark) and first_benchmark != 0:
-            available = benchmark_lookup[benchmark_lookup["date"] <= pd.to_datetime(as_of)]
-            if not available.empty:
-                benchmark_return = float(available.iloc[-1]["price"] / first_benchmark - 1)
         rows.append(
             {
                 "date": as_of,
                 "invested_value": invested_value,
                 "cash": cash,
                 "total_portfolio_value": total_value,
-                "portfolio_return": total_value / first_value - 1 if first_value else np.nan,
-                "benchmark_return": benchmark_return,
+                "portfolio_return": np.nan,
+                "benchmark_return": np.nan,
             }
         )
 
@@ -442,7 +431,28 @@ def compute_daily_mark_to_market_snapshots(
     combined = pd.concat([base, appended], ignore_index=True) if not appended.empty else base
     if combined.empty:
         return pd.DataFrame(columns=["date", "invested_value", "cash", "total_portfolio_value", "portfolio_return", "benchmark_return"])
-    return combined.drop_duplicates(subset=["date"], keep="first").sort_values("date").reset_index(drop=True)
+    combined = combined.drop_duplicates(subset=["date"], keep="last").sort_values("date").reset_index(drop=True)
+    combined["total_portfolio_value"] = pd.to_numeric(combined["total_portfolio_value"], errors="coerce")
+    first_values = combined["total_portfolio_value"].dropna()
+    first_value = float(first_values.iloc[0]) if not first_values.empty else initial_cash
+    combined["portfolio_return"] = np.where(
+        first_value != 0,
+        combined["total_portfolio_value"] / first_value - 1,
+        np.nan,
+    )
+    if not benchmark_lookup.empty:
+        first_benchmark_values = pd.to_numeric(benchmark_lookup["price"], errors="coerce").dropna()
+        first_benchmark = float(first_benchmark_values.iloc[0]) if not first_benchmark_values.empty else np.nan
+        if not np.isnan(first_benchmark) and first_benchmark != 0:
+            benchmark_lookup = benchmark_lookup.sort_values("date")
+            benchmark_asof = pd.merge_asof(
+                pd.DataFrame({"date": pd.to_datetime(combined["date"], errors="coerce")}).sort_values("date"),
+                benchmark_lookup[["date", "price"]].sort_values("date"),
+                on="date",
+                direction="backward",
+            )
+            combined["benchmark_return"] = pd.to_numeric(benchmark_asof["price"], errors="coerce") / first_benchmark - 1
+    return combined.sort_values("date").reset_index(drop=True)
 
 
 def recompute_all_after_trade(

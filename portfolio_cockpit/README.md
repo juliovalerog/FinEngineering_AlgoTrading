@@ -72,7 +72,18 @@ The `TRACK` sheet is converted into a normalized trade ledger. Current positions
 
 ## Reset Demo Database
 
-Use the button **Reset demo database from Excel** in the first tab. This deletes and rebuilds only the demo SQLite database from the original Excel input. It does not overwrite the Excel file.
+Use the button **Reset to original Excel state** in the first tab. This deletes and rebuilds only the demo SQLite database from the original Excel input. It removes Yahoo-updated prices and Yahoo-extended snapshot dates from the live local database. It does not overwrite the Excel file.
+
+## Manual Market-Data Refresh
+
+The Yahoo Finance refresh is manual and optional. It updates only open-position tickers plus the S&P 500 reference in SQLite; it never modifies the Excel workbook.
+
+Developer verification flow:
+
+1. Reset database from Excel.
+2. Observe the latest portfolio snapshot date from the original Excel history.
+3. Refresh Yahoo prices in the Market Data Refresh section.
+4. Confirm that Yahoo rows were added to `prices`, S&P 500 rows were added to `benchmark_prices`, `portfolio_snapshots` extends beyond the Excel date when market data is available, and the charts plus sidebar date range update to the new latest snapshot date.
 
 ## Add New Trades
 

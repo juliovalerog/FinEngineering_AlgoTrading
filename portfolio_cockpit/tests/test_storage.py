@@ -119,3 +119,87 @@ def test_reset_database_behavior(tmp_path: Path) -> None:
 
     storage.reset_database_from_excel(excel_path, db_path)
     assert len(storage.get_trades(db_path)) == initial_count
+
+
+def test_market_data_recompute_extends_snapshots_to_latest_market_date(tmp_path: Path) -> None:
+    db_path = tmp_path / "portfolio.sqlite"
+    storage.init_database(db_path)
+    storage.insert_trade(
+        {
+            "trade_id": "abc-buy",
+            "source_sheet": "TEST",
+            "source_row": None,
+            "symbol": "ABC",
+            "side": "BUY",
+            "trade_date": "2026-04-01",
+            "quantity": 10,
+            "price": 100,
+            "amount": 1000,
+            "sector": "Technology",
+            "status": "TEST",
+            "notes": None,
+        },
+        db_path,
+    )
+    storage.write_portfolio_snapshots(
+        pd.DataFrame(
+            [
+                {"date": "2026-04-17", "invested_value": 1100, "cash": 999000, "total_portfolio_value": 1000100, "portfolio_return": 0.0, "benchmark_return": 0.0},
+            ]
+        ),
+        db_path,
+    )
+    storage.upsert_prices(
+        pd.DataFrame(
+            [
+                {"date": "2026-04-17", "symbol": "ABC", "price": 110, "source": "Precios sheet"},
+                {"date": "2026-05-08", "symbol": "ABC", "price": 130, "source": "Yahoo Finance"},
+            ]
+        ),
+        db_path,
+    )
+    storage.upsert_benchmark_prices(
+        pd.DataFrame(
+            [
+                {"date": "2026-04-17", "benchmark": "S&P 500", "price": 100, "source": "Portfolio sheet"},
+                {"date": "2026-05-08", "benchmark": "S&P 500", "price": 105, "source": "Yahoo Finance"},
+            ]
+        ),
+        db_path,
+    )
+
+    result = storage.recompute_all_after_market_data_refresh(db_path)
+    snapshots = storage.get_portfolio_snapshots(db_path)
+
+    assert result["summary"]["previous_latest_snapshot_date"] == "2026-04-17"
+    assert result["summary"]["new_latest_snapshot_date"] == "2026-05-08"
+    assert result["summary"]["snapshots_extended"] is True
+    assert snapshots["date"].max() == "2026-05-08"
+    assert snapshots["date"].is_unique
+    latest = snapshots[snapshots["date"] == "2026-05-08"].iloc[0]
+    assert latest["total_portfolio_value"] == 1000300
+    assert round(float(latest["benchmark_return"]), 6) == 0.05
+
+
+def test_reset_removes_yahoo_extended_snapshots(tmp_path: Path) -> None:
+    excel_path = tmp_path / "portfolio.xlsx"
+    db_path = tmp_path / "portfolio.sqlite"
+    _create_minimal_excel(excel_path)
+
+    storage.reset_database_from_excel(excel_path, db_path)
+    assert storage.get_portfolio_snapshots(db_path)["date"].max() == "2026-01-02"
+    storage.upsert_prices(
+        pd.DataFrame([{"date": "2026-01-04", "symbol": "ABC", "price": 130, "source": "Yahoo Finance"}]),
+        db_path,
+    )
+    storage.upsert_benchmark_prices(
+        pd.DataFrame([{"date": "2026-01-04", "benchmark": "S&P 500", "price": 104, "source": "Yahoo Finance"}]),
+        db_path,
+    )
+    storage.recompute_all_after_market_data_refresh(db_path)
+    assert storage.get_portfolio_snapshots(db_path)["date"].max() == "2026-01-04"
+
+    storage.reset_database_from_excel(excel_path, db_path)
+
+    assert storage.get_portfolio_snapshots(db_path)["date"].max() == "2026-01-02"
+    assert "Yahoo Finance" not in set(storage.get_prices(db_path)["source"])

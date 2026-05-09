@@ -324,12 +324,15 @@ def recompute_all_after_trade(db_path: Path | str | None = None) -> dict[str, pd
     return recalculated
 
 
-def recompute_all_after_market_data_refresh(db_path: Path | str | None = None) -> dict[str, pd.DataFrame]:
+def recompute_all_after_market_data_refresh(db_path: Path | str | None = None) -> dict[str, Any]:
     """Recompute positions and extend snapshots after market-data updates."""
     trades = get_trades(db_path)
     prices = get_prices(db_path)
     benchmark_prices = get_benchmark_prices(db_path)
     existing_snapshots = get_portfolio_snapshots(db_path)
+    previous_dates = pd.to_datetime(existing_snapshots.get("date"), errors="coerce").dropna() if existing_snapshots is not None and not existing_snapshots.empty else pd.Series(dtype="datetime64[ns]")
+    previous_latest = previous_dates.max().date().isoformat() if not previous_dates.empty else None
+    rows_before = 0 if existing_snapshots is None else int(len(existing_snapshots))
     positions = portfolio_engine.compute_positions(trades, prices)
     snapshots = portfolio_engine.compute_daily_mark_to_market_snapshots(
         trades,
@@ -340,12 +343,24 @@ def recompute_all_after_market_data_refresh(db_path: Path | str | None = None) -
     )
     write_positions(positions, db_path)
     write_portfolio_snapshots(snapshots, db_path)
+    new_dates = pd.to_datetime(snapshots.get("date"), errors="coerce").dropna() if snapshots is not None and not snapshots.empty else pd.Series(dtype="datetime64[ns]")
+    new_latest = new_dates.max().date().isoformat() if not new_dates.empty else None
+    summary = {
+        "previous_latest_snapshot_date": previous_latest,
+        "new_latest_snapshot_date": new_latest,
+        "snapshot_rows_before": rows_before,
+        "snapshot_rows_after": 0 if snapshots is None else int(len(snapshots)),
+        "snapshots_extended": bool(previous_latest and new_latest and pd.to_datetime(new_latest) > pd.to_datetime(previous_latest)),
+    }
     write_audit_log(
-        "MARK_TO_MARKET_RECOMPUTE",
-        "Market-data refresh triggered daily mark-to-market recomputation from effective prices.",
+        "MARKET_DATA_RECOMPUTE",
+        (
+            "Market-data refresh triggered daily mark-to-market recomputation from effective prices. "
+            f"Latest snapshot moved from {previous_latest or 'n/a'} to {new_latest or 'n/a'}."
+        ),
         db_path,
     )
-    return {"positions": positions, "portfolio_snapshots": snapshots}
+    return {"positions": positions, "portfolio_snapshots": snapshots, "summary": summary}
 
 
 def reset_database_from_excel(
