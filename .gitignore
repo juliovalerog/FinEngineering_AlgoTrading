@@ -13,6 +13,7 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 notebooks/02_lbo_model_python_solutions.ipynb
+notebooks/03_algorithmic_trading_backtest.ipynb
 
 # Distribution / packaging
 build/
@@ -35,3 +36,7 @@ Thumbs.db
 # Coverage
 .coverage
 htmlcov/
+
+# Generated demo databases
+portfolio_cockpit/data/store/*.sqlite
+portfolio_cockpit/data/store/*.sqlite-*
