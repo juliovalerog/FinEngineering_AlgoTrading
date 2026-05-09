@@ -56,6 +56,23 @@ def get_last_benchmark_date(benchmark_prices: pd.DataFrame, benchmark: str = SP5
     return filtered["date"].max().date()
 
 
+def benchmark_scale_inconsistent(benchmark_prices: pd.DataFrame, benchmark: str = SP500_BENCHMARK) -> bool:
+    """Detect obvious mixed-scale benchmark histories such as SPY plus ^GSPC."""
+    if benchmark_prices is None or benchmark_prices.empty:
+        return False
+    data = benchmark_prices.copy()
+    if "benchmark" not in data.columns or "date" not in data.columns or "price" not in data.columns:
+        return False
+    data["benchmark"] = data["benchmark"].astype(str)
+    data["date"] = pd.to_datetime(data["date"], errors="coerce")
+    data["price"] = pd.to_numeric(data["price"], errors="coerce")
+    data = data[(data["benchmark"] == benchmark)].dropna(subset=["date", "price"]).sort_values("date")
+    if len(data) < 2:
+        return False
+    ratios = data["price"] / data["price"].shift(1)
+    return bool(((ratios > 3.0) | (ratios < 1 / 3)).any())
+
+
 def normalize_yahoo_prices(raw_data: pd.DataFrame) -> pd.DataFrame:
     """Normalize yfinance output into date, symbol, price, source rows."""
     if raw_data is None or raw_data.empty:
@@ -192,8 +209,62 @@ def _latest_available_market_date(prices: pd.DataFrame, benchmark_prices: pd.Dat
     return max(dates).date()
 
 
+def repair_benchmark_if_scale_inconsistent(db_path: Path | str | None = None) -> dict:
+    """Remove stale mixed-scale Yahoo benchmark rows and rebuild the proxy with SPY."""
+    benchmark_prices = storage.get_benchmark_prices(db_path)
+    result = {
+        "scale_inconsistent": benchmark_scale_inconsistent(benchmark_prices, SP500_BENCHMARK),
+        "rows_deleted": 0,
+        "rows_inserted": 0,
+        "message": "Benchmark scale is consistent; no repair needed.",
+    }
+    if not result["scale_inconsistent"]:
+        return result
+
+    result["rows_deleted"] = storage.delete_benchmark_prices(
+        benchmark=SP500_BENCHMARK,
+        source=YAHOO_SOURCE,
+        db_path=db_path,
+    )
+    remaining = storage.get_benchmark_prices(db_path)
+    excel_rows = remaining[
+        (remaining.get("benchmark", pd.Series(dtype=str)).astype(str) == SP500_BENCHMARK)
+        & (remaining.get("source", pd.Series(dtype=str)).astype(str) == "Portfolio sheet")
+    ].copy()
+    excel_rows["date"] = pd.to_datetime(excel_rows.get("date"), errors="coerce")
+    excel_rows = excel_rows.dropna(subset=["date"]).sort_values("date")
+    trades = storage.get_trades(db_path)
+    if not excel_rows.empty:
+        start = excel_rows["date"].max().date() + timedelta(days=1)
+    else:
+        start = _earliest_trade_date(trades)
+
+    inserted = 0
+    if start is not None and start <= date.today():
+        try:
+            spy_frame = download_sp500_reference_from_yahoo(start)
+        except Exception as exc:
+            spy_frame = pd.DataFrame(columns=["date", "benchmark", "price", "source"])
+            result["message"] = f"Benchmark scale inconsistency detected; stale Yahoo rows were deleted, but SPY download failed: {exc}"
+        else:
+            inserted = storage.upsert_benchmark_prices(spy_frame, db_path)
+            result["message"] = f"Benchmark scale inconsistency repaired by replacing Yahoo benchmark rows with SPY proxy data. Inserted {inserted} rows."
+    else:
+        result["message"] = "Benchmark scale inconsistency detected; stale Yahoo rows were deleted, but no valid SPY refresh start date was available."
+
+    result["rows_inserted"] = inserted
+    storage.write_audit_log(
+        "BENCHMARK_SCALE_REPAIR",
+        f"{result['message']} Deleted {result['rows_deleted']} stale Yahoo benchmark rows.",
+        db_path,
+    )
+    storage.recompute_all_after_market_data_refresh(db_path)
+    return result
+
+
 def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
     """Refresh Yahoo daily data for open positions and the S&P 500 reference only."""
+    benchmark_repair = repair_benchmark_if_scale_inconsistent(db_path)
     trades = storage.get_trades(db_path)
     prices = storage.get_prices(db_path)
     benchmark_prices = storage.get_benchmark_prices(db_path)
@@ -223,6 +294,7 @@ def refresh_open_position_prices(db_path: Path | str | None = None) -> dict:
         "snapshots_extended": False,
         "snapshot_rows_before": 0 if snapshots is None else int(len(snapshots)),
         "snapshot_rows_after": 0 if snapshots is None else int(len(snapshots)),
+        "benchmark_repair": benchmark_repair,
     }
 
     downloaded_prices: list[pd.DataFrame] = []

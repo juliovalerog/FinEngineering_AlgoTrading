@@ -114,6 +114,14 @@ def module_diagnostics() -> dict[str, Any]:
     }
 
 
+def reset_to_original_excel_state(public_demo: bool) -> str:
+    storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
+    if public_demo:
+        st.session_state["session_trades"] = []
+    storage.write_audit_log("RESET_FROM_EXCEL", "SQLite rebuilt from the original Excel input.", DB_PATH)
+    return "SQLite rebuilt from the original Excel input. Yahoo-updated prices, temporary public runtime changes and extended snapshots were removed."
+
+
 def ensure_database() -> str:
     if not storage.database_exists(DB_PATH):
         storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
@@ -208,11 +216,11 @@ def compute_benchmark_metrics(
     risk: dict[str, Any],
 ) -> dict[str, Any]:
     benchmark_return = np.nan
-    if benchmark_prices is not None and not benchmark_prices.empty:
-        benchmark_return = metrics.cumulative_return(pd.to_numeric(benchmark_prices["price"], errors="coerce"))
-    elif snapshots is not None and not snapshots.empty and "benchmark_return" in snapshots:
+    if snapshots is not None and not snapshots.empty and "benchmark_return" in snapshots:
         valid = pd.to_numeric(snapshots["benchmark_return"], errors="coerce").dropna()
         benchmark_return = float(valid.iloc[-1]) if not valid.empty else np.nan
+    elif benchmark_prices is not None and not benchmark_prices.empty:
+        benchmark_return = metrics.cumulative_return(pd.to_numeric(benchmark_prices["price"], errors="coerce"))
     portfolio_return = risk.get("cumulative_return", np.nan)
     excess = portfolio_return - benchmark_return if not pd.isna(portfolio_return) and not pd.isna(benchmark_return) else np.nan
     portfolio_daily = pd.Series(dtype="float64")
@@ -594,13 +602,7 @@ with tabs[1]:
 
     st.caption("Reset rebuilds the local SQLite database from the original Excel input. Market refresh updates SQLite; it does not modify the Excel.")
     if st.button("Reset to original Excel state"):
-        if public_demo_mode:
-            st.session_state["session_trades"] = []
-            st.info("Public demo mode reset: session-level demo trades were cleared. The bundled Excel source remains unchanged.")
-        else:
-            storage.reset_database_from_excel(EXCEL_PATH, DB_PATH)
-            storage.write_audit_log("RESET", "Demo database reset from immutable Excel input.", DB_PATH)
-            st.success("Local SQLite database rebuilt from the original Excel input. Yahoo-updated prices and extended snapshots were removed from the live demo database.")
+        st.success(reset_to_original_excel_state(public_demo_mode))
         st.rerun()
 
     st.subheader("Market Data Refresh")
@@ -628,9 +630,19 @@ with tabs[1]:
         with st.spinner("Refreshing Yahoo Finance daily prices for open positions and S&P 500..."):
             st.session_state["last_market_refresh_result"] = market_data.refresh_open_position_prices(DB_PATH)
         st.rerun()
+    if st.button("Repair S&P 500 benchmark scale"):
+        with st.spinner("Checking and repairing benchmark scale if needed..."):
+            st.session_state["last_benchmark_repair_result"] = market_data.repair_benchmark_if_scale_inconsistent(DB_PATH)
+        st.rerun()
+    if "last_benchmark_repair_result" in st.session_state:
+        repair_result = st.session_state["last_benchmark_repair_result"]
+        st.write("Benchmark repair result:", repair_result.get("message", "No result message available."))
+        st.json(repair_result)
     if "last_market_refresh_result" in st.session_state:
         refresh_result = st.session_state["last_market_refresh_result"]
         st.write("Latest refresh status:", refresh_result.get("status", "unknown"))
+        if refresh_result.get("benchmark_repair", {}).get("scale_inconsistent"):
+            st.warning(refresh_result["benchmark_repair"].get("message", "Benchmark scale repair was applied before refresh."))
         before_snapshot = refresh_result.get("previous_latest_snapshot_date") or refresh_result.get("latest_snapshot_date_before_refresh")
         after_snapshot = refresh_result.get("new_latest_snapshot_date") or refresh_result.get("latest_snapshot_date_after_refresh")
         snapshots_extended = bool(refresh_result.get("snapshots_extended")) or bool(before_snapshot and after_snapshot and pd.to_datetime(after_snapshot) > pd.to_datetime(before_snapshot))

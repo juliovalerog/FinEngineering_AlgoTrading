@@ -305,6 +305,24 @@ def upsert_benchmark_prices(benchmark_frame: pd.DataFrame, db_path: Path | str |
     return len(rows)
 
 
+def delete_benchmark_prices(
+    benchmark: str = "S&P 500",
+    source: str | None = None,
+    db_path: Path | str | None = None,
+) -> int:
+    """Delete benchmark observations by benchmark name and optional source."""
+    init_database(db_path)
+    with _connection(db_path) as conn:
+        if source is None:
+            cursor = conn.execute("DELETE FROM benchmark_prices WHERE benchmark = ?", (benchmark,))
+        else:
+            cursor = conn.execute(
+                "DELETE FROM benchmark_prices WHERE benchmark = ? AND source = ?",
+                (benchmark, source),
+            )
+        return int(cursor.rowcount)
+
+
 def recompute_all_after_trade(db_path: Path | str | None = None) -> dict[str, pd.DataFrame]:
     """Read the SQLite ledger, recompute derived tables, and write them back."""
     trades = get_trades(db_path)

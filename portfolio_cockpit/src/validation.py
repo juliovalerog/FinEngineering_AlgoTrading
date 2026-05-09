@@ -325,7 +325,7 @@ def run_data_quality_checks(
                     _issue(
                         "Warning",
                         "benchmark_scale_may_be_inconsistent",
-                        "The benchmark series has a sudden level jump above 3x between consecutive observations.",
+                        "Benchmark scale inconsistency detected: possible mix of SPY-like and ^GSPC-like levels.",
                         recommendation="Check whether ETF-level prices and raw index levels were mixed. The Yahoo refresh uses SPY because the Excel S&P500 series is SPY-like in scale.",
                     )
                 )
