@@ -10,20 +10,41 @@ The app shows how a professional analyst turns an operational Excel portfolio fi
 
 The architecture is deliberately simple for class: SQLite is the only storage backend. There is no Docker setup and no MariaDB, PostgreSQL or external database server.
 
-## Install
+## Install And Run On Windows
 
-From this folder:
+Use the local Python interpreter inside `.venv` and run Streamlit as a Python module. This avoids calling `streamlit.exe` directly, which may be blocked by Windows Application Control policies.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+cd C:/Users/julio/Documents/DemoCode/FinEngineering_AlgoTrading/portfolio_cockpit
+
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-## Run
+Do not use `streamlit run app.py` directly if Windows blocks `streamlit.exe`. Use `python.exe -m streamlit` because it runs Streamlit as a Python module through the approved Python interpreter.
+
+Activation with `Activate.ps1` is optional and not needed for the commands above.
+
+## Run Options
+
+Recommended:
 
 ```powershell
-streamlit run app.py
+.\run_app_windows.bat
+```
+
+PowerShell:
+
+```powershell
+.\run_app_windows.ps1
+```
+
+Manual:
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 The expected Excel input is:
@@ -69,7 +90,7 @@ Configure Gemini locally with an environment variable:
 
 ```powershell
 $env:GEMINI_API_KEY="your_key_here"
-streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 The app also accepts `GOOGLE_API_KEY`, matching the existing LBO demo credential pattern.
