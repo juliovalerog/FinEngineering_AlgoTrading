@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+APP_ROOT = Path(__file__).resolve().parent
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
 
 import numpy as np
 import pandas as pd
@@ -14,7 +19,6 @@ import streamlit as st
 from src import charts, data_loader, filters as display_filters, llm_report, market_data, metrics, portfolio_engine, reporting, storage, validation
 
 
-APP_ROOT = Path(__file__).resolve().parent
 EXCEL_PATH = APP_ROOT / "data" / "input" / "Portfolio Example JULIO.xlsx"
 DB_PATH = APP_ROOT / "data" / "store" / "portfolio_mvp.sqlite"
 
@@ -101,6 +105,13 @@ def kpi_card(label: str, value: str, caption: str = "") -> None:
 def teaching_note(text: str, enabled: bool) -> None:
     if enabled:
         st.markdown(f'<div class="section-note">{text}</div>', unsafe_allow_html=True)
+
+
+def module_diagnostics() -> dict[str, Any]:
+    return {
+        "portfolio_engine_file": getattr(portfolio_engine, "__file__", "unknown"),
+        "has_get_effective_daily_prices": hasattr(portfolio_engine, "get_effective_daily_prices"),
+    }
 
 
 def ensure_database() -> str:
@@ -325,7 +336,13 @@ def price_source_coverage(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.D
     data = data.dropna(subset=["date", "symbol", "price"])
     if data.empty:
         return pd.DataFrame(columns=columns)
-    effective = portfolio_engine.get_effective_daily_prices(data)
+    if hasattr(portfolio_engine, "get_effective_daily_prices"):
+        effective = portfolio_engine.get_effective_daily_prices(data)
+    else:
+        st.error("Internal error: portfolio_engine.get_effective_daily_prices is unavailable. Check module import path.")
+        effective = data.copy()
+        effective["date"] = pd.to_datetime(effective["date"], errors="coerce").dt.date.astype(str)
+        effective = effective.drop_duplicates(subset=["date", "symbol"], keep="last")
     effective["date"] = pd.to_datetime(effective["date"], errors="coerce")
     latest = effective.sort_values(["date", "source"]).groupby("symbol", as_index=False).tail(1)
     source_counts = data.assign(
@@ -572,6 +589,8 @@ with tabs[1]:
     col_a.metric("Database status", db_status)
     col_b.metric("Ledger events", len(context["trades"]))
     col_c.metric("Snapshots", len(context["snapshots"]))
+    with st.expander("Developer diagnostics", expanded=False):
+        st.json(module_diagnostics())
 
     st.caption("Reset rebuilds the local SQLite database from the original Excel input. Market refresh updates SQLite; it does not modify the Excel.")
     if st.button("Reset to original Excel state"):

@@ -8,6 +8,21 @@ import pandas as pd
 from . import portfolio_engine
 
 
+def _effective_prices_for_validation(prices: pd.DataFrame) -> pd.DataFrame:
+    if hasattr(portfolio_engine, "get_effective_daily_prices"):
+        return portfolio_engine.get_effective_daily_prices(prices)
+    columns = ["date", "symbol", "price", "source"]
+    data = prices.copy()
+    for column in columns:
+        if column not in data.columns:
+            data[column] = None
+    data = data[columns]
+    data["date"] = pd.to_datetime(data["date"], errors="coerce").dt.date.astype(str)
+    data["symbol"] = data["symbol"].astype(str).str.upper().str.strip()
+    data["price"] = pd.to_numeric(data["price"], errors="coerce")
+    return data.dropna(subset=["date", "symbol", "price"]).drop_duplicates(subset=["date", "symbol"], keep="last")
+
+
 def _issue(
     severity: str,
     check_name: str,
@@ -221,7 +236,7 @@ def run_data_quality_checks(
             )
         )
     elif positions is not None and not positions.empty:
-        effective_prices = portfolio_engine.get_effective_daily_prices(prices)
+        effective_prices = _effective_prices_for_validation(prices)
         open_positions = positions.copy()
         open_positions["quantity"] = pd.to_numeric(open_positions["quantity"], errors="coerce").fillna(0)
         open_symbols = sorted(open_positions.loc[open_positions["quantity"] > 0, "symbol"].dropna().astype(str).str.upper().unique().tolist())
