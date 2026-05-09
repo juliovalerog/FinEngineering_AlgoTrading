@@ -298,3 +298,26 @@ def recompute_all_after_trade(
         existing_snapshots=existing_snapshots,
     )
     return {"positions": positions, "portfolio_snapshots": snapshots}
+
+
+def simulate_trade_impact(
+    trades: pd.DataFrame,
+    trade: dict[str, Any],
+    prices: pd.DataFrame | None = None,
+    benchmark_prices: pd.DataFrame | None = None,
+    existing_snapshots: pd.DataFrame | None = None,
+    initial_cash: float = 1_000_000,
+) -> dict[str, pd.DataFrame]:
+    """Simulate a trade without mutating SQLite or the original trade ledger."""
+    base_trades = trades.copy() if trades is not None else pd.DataFrame()
+    simulated_trade = pd.DataFrame([trade])
+    combined_trades = pd.concat([base_trades, simulated_trade], ignore_index=True)
+    recalculated = recompute_all_after_trade(
+        combined_trades,
+        prices=prices,
+        benchmark_prices=benchmark_prices,
+        existing_snapshots=existing_snapshots,
+        initial_cash=initial_cash,
+    )
+    recalculated["trades"] = combined_trades
+    return recalculated

@@ -31,3 +31,24 @@ def test_concentration_metrics() -> None:
     assert np.isclose(result["herfindahl_index"], 0.38)
     assert np.isclose(result["effective_number_positions"], 1 / 0.38)
 
+
+def test_beta_vs_benchmark() -> None:
+    portfolio = pd.Series([0.01, 0.02, -0.01, 0.03])
+    benchmark = pd.Series([0.005, 0.015, -0.005, 0.02])
+    expected = portfolio.cov(benchmark) / benchmark.var(ddof=1)
+    assert np.isclose(metrics.beta_vs_benchmark(portfolio, benchmark), expected)
+
+
+def test_tracking_error() -> None:
+    portfolio = pd.Series([0.01, 0.02, -0.01, 0.03])
+    benchmark = pd.Series([0.005, 0.015, -0.005, 0.02])
+    expected = (portfolio - benchmark).std(ddof=1) * np.sqrt(252)
+    assert np.isclose(metrics.tracking_error(portfolio, benchmark), expected)
+
+
+def test_information_ratio() -> None:
+    portfolio = pd.Series([0.01, 0.02, -0.01, 0.03])
+    benchmark = pd.Series([0.005, 0.015, -0.005, 0.02])
+    active = portfolio - benchmark
+    expected = (active.mean() * 252) / (active.std(ddof=1) * np.sqrt(252))
+    assert np.isclose(metrics.information_ratio(portfolio, benchmark), expected)

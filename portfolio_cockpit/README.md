@@ -98,3 +98,15 @@ The app also accepts `GOOGLE_API_KEY`, matching the existing LBO demo credential
 Gemini is optional. If credentials are missing or the API call fails, the app falls back to the deterministic report.
 
 Do not use Gemini Free Tier with confidential real portfolio data. The LLM drafts the narrative; it does not calculate or validate the portfolio.
+
+## Deploy The Portfolio Management Cockpit On Streamlit Community Cloud
+
+Use these Streamlit Community Cloud settings:
+
+- Repository: `juliovalerog/FinEngineering_AlgoTrading`
+- Branch: `main`
+- Main file path: `portfolio_cockpit/app.py`
+
+For this public review deployment, publish without adding `GEMINI_API_KEY` or `GOOGLE_API_KEY` to Streamlit Cloud secrets. Leave Streamlit Cloud secrets empty. The deterministic report remains available by default, and Gemini will show as not configured. This is intentional.
+
+The bundled Excel data is public educational demo data and must remain committed because the deployed app initializes SQLite from it.

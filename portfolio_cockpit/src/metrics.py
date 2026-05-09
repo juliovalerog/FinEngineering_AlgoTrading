@@ -125,3 +125,77 @@ def concentration_metrics(weights: pd.Series | list[float] | tuple[float, ...]) 
         "effective_number_positions": float(1 / hhi) if hhi > 0 else np.nan,
     }
 
+
+def _aligned_returns(
+    portfolio_returns: pd.Series | list[float] | tuple[float, ...],
+    benchmark_returns: pd.Series | list[float] | tuple[float, ...],
+) -> tuple[pd.Series, pd.Series]:
+    """Align portfolio and benchmark return observations by index and remove missing values."""
+    aligned = pd.concat(
+        [
+            pd.Series(portfolio_returns, dtype="float64").rename("portfolio"),
+            pd.Series(benchmark_returns, dtype="float64").rename("benchmark"),
+        ],
+        axis=1,
+    ).replace([np.inf, -np.inf], np.nan).dropna()
+    if aligned.empty:
+        return pd.Series(dtype="float64"), pd.Series(dtype="float64")
+    return aligned["portfolio"], aligned["benchmark"]
+
+
+def beta_vs_benchmark(
+    portfolio_returns: pd.Series | list[float] | tuple[float, ...],
+    benchmark_returns: pd.Series | list[float] | tuple[float, ...],
+) -> float:
+    """Compute beta as covariance with benchmark divided by benchmark variance."""
+    portfolio, benchmark = _aligned_returns(portfolio_returns, benchmark_returns)
+    if portfolio.size < 2:
+        return np.nan
+    benchmark_variance = float(benchmark.var(ddof=1))
+    if benchmark_variance == 0 or np.isnan(benchmark_variance):
+        return np.nan
+    covariance = float(portfolio.cov(benchmark))
+    return float(covariance / benchmark_variance)
+
+
+def tracking_error(
+    portfolio_returns: pd.Series | list[float] | tuple[float, ...],
+    benchmark_returns: pd.Series | list[float] | tuple[float, ...],
+    periods: int = 252,
+) -> float:
+    """Annualized volatility of active returns versus the benchmark."""
+    portfolio, benchmark = _aligned_returns(portfolio_returns, benchmark_returns)
+    if portfolio.size < 2:
+        return np.nan
+    active = portfolio - benchmark
+    active_volatility = float(active.std(ddof=1))
+    if np.isnan(active_volatility):
+        return np.nan
+    return float(active_volatility * np.sqrt(periods))
+
+
+def information_ratio(
+    portfolio_returns: pd.Series | list[float] | tuple[float, ...],
+    benchmark_returns: pd.Series | list[float] | tuple[float, ...],
+    periods: int = 252,
+) -> float:
+    """Annualized active return divided by annualized tracking error."""
+    portfolio, benchmark = _aligned_returns(portfolio_returns, benchmark_returns)
+    if portfolio.size < 2:
+        return np.nan
+    active = portfolio - benchmark
+    te = tracking_error(portfolio, benchmark, periods=periods)
+    if te == 0 or np.isnan(te):
+        return np.nan
+    annualized_active_return = float(active.mean() * periods)
+    return float(annualized_active_return / te)
+
+
+def turnover_proxy(trades: pd.DataFrame, average_portfolio_value: float | None) -> float:
+    """Estimate simple turnover as gross traded value divided by average portfolio value."""
+    if trades is None or trades.empty or average_portfolio_value is None or average_portfolio_value == 0:
+        return np.nan
+    amounts = pd.to_numeric(trades.get("amount"), errors="coerce").abs().dropna()
+    if amounts.empty:
+        return np.nan
+    return float(amounts.sum() / average_portfolio_value)

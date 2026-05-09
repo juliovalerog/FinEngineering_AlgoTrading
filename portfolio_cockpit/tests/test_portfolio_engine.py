@@ -49,3 +49,14 @@ def test_position_calculation_after_buy_sell() -> None:
     assert positions.iloc[0]["average_cost"] == 100
     assert np.isclose(pnl["realized_pnl"], 80)
 
+
+def test_trade_simulation_does_not_mutate_original_ledger() -> None:
+    trades = pd.DataFrame([_trade("ABC", "BUY", "2026-01-01", 10, 100)])
+    original_count = len(trades)
+    simulated = portfolio_engine.simulate_trade_impact(
+        trades,
+        _trade("ABC", "BUY", "2026-01-02", 5, 110),
+    )
+    assert len(trades) == original_count
+    assert len(simulated["trades"]) == original_count + 1
+    assert simulated["positions"].iloc[0]["quantity"] == 15

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from html import escape
 
 import numpy as np
 import pandas as pd
@@ -59,7 +60,7 @@ The local benchmark series shows cumulative S&P 500 return of {_fmt_pct(benchmar
 
 ## Risk profile
 
-Annualized return is {_fmt_pct(risk_metrics.get("annualized_return"))}, annualized volatility is {_fmt_pct(risk_metrics.get("annualized_volatility"))}, Sharpe ratio is {_fmt_ratio(risk_metrics.get("sharpe_ratio"))}, Sortino ratio is {_fmt_ratio(risk_metrics.get("sortino_ratio"))}, and maximum drawdown is {_fmt_pct(risk_metrics.get("max_drawdown"))}.
+Annualized return is {_fmt_pct(risk_metrics.get("annualized_return"))}, annualized volatility is {_fmt_pct(risk_metrics.get("annualized_volatility"))}, Sharpe ratio is {_fmt_ratio(risk_metrics.get("sharpe_ratio"))}, Sortino ratio is {_fmt_ratio(risk_metrics.get("sortino_ratio"))}, and maximum drawdown is {_fmt_pct(risk_metrics.get("max_drawdown"))}. Beta versus S&P 500 is {_fmt_ratio(risk_metrics.get("beta"))}, tracking error is {_fmt_pct(risk_metrics.get("tracking_error"))}, and information ratio is {_fmt_ratio(risk_metrics.get("information_ratio"))}.
 
 ## Recent trading activity
 
@@ -74,3 +75,29 @@ Automated checks currently report {dq_count} issue or note rows, including {bloc
 Reconcile open positions against broker or custodian records, refresh benchmark and market prices from an approved provider, and review concentration before using the report for an investment decision.
 """.strip()
 
+
+def deterministic_report_to_html(markdown_text: str) -> str:
+    """Convert the deterministic Markdown report into simple standalone HTML."""
+    html_lines = [
+        "<!doctype html>",
+        "<html>",
+        "<head>",
+        "<meta charset=\"utf-8\">",
+        "<title>Portfolio Management Cockpit Report</title>",
+        "<style>body{font-family:Arial,sans-serif;max-width:900px;margin:32px auto;line-height:1.5;color:#111827;}h1,h2{color:#111827;}p{margin:0 0 14px;}</style>",
+        "</head>",
+        "<body>",
+        "<h1>Portfolio Management Cockpit Report</h1>",
+    ]
+    for line in markdown_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("## "):
+            html_lines.append(f"<h2>{escape(stripped[3:])}</h2>")
+        elif stripped.startswith("- "):
+            html_lines.append(f"<p>&bull; {escape(stripped[2:])}</p>")
+        else:
+            html_lines.append(f"<p>{escape(stripped)}</p>")
+    html_lines.extend(["</body>", "</html>"])
+    return "\n".join(html_lines)

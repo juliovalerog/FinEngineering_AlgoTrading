@@ -12,12 +12,14 @@ def _issue(
     message: str,
     affected_rows: list[Any] | None = None,
     recommendation: str = "",
+    affected_symbols: list[Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "severity": severity,
         "check_name": check_name,
         "message": message,
         "affected_rows": affected_rows or [],
+        "affected_symbols": affected_symbols or [],
         "recommendation": recommendation,
     }
 
@@ -111,6 +113,7 @@ def run_data_quality_checks(
                     f"{len(missing)} trade rows are missing {column}.",
                     _row_ids(missing),
                     "Repair the raw Excel row or add a controlled correction in SQLite.",
+                    missing.get("symbol", pd.Series(dtype=str)).dropna().astype(str).unique().tolist(),
                 )
             )
 
@@ -118,14 +121,15 @@ def run_data_quality_checks(
     duplicates = trades[trades.duplicated(subset=duplicate_subset, keep=False)]
     if not duplicates.empty:
         issues.append(
-            _issue(
-                "Warning",
-                "duplicate_like_trades",
-                f"{len(duplicates)} trades look duplicated based on symbol, side, date, quantity and price.",
-                _row_ids(duplicates),
-                "Confirm whether these are legitimate split executions or accidental duplicate imports.",
+                _issue(
+                    "Warning",
+                    "duplicate_like_trades",
+                    f"{len(duplicates)} trades look duplicated based on symbol, side, date, quantity and price.",
+                    _row_ids(duplicates),
+                    "Confirm whether these are legitimate split executions or accidental duplicate imports.",
+                    duplicates.get("symbol", pd.Series(dtype=str)).dropna().astype(str).unique().tolist(),
+                )
             )
-        )
 
     missing_sectors = trades[
         trades["sector"].isna()
@@ -133,14 +137,15 @@ def run_data_quality_checks(
     ]
     if not missing_sectors.empty:
         issues.append(
-            _issue(
-                "Warning",
-                "missing_sectors",
-                f"{len(missing_sectors)} trades do not have a sector classification.",
-                _row_ids(missing_sectors),
-                "Add sector mapping before using sector allocation for investment decisions.",
+                _issue(
+                    "Warning",
+                    "missing_sectors",
+                    f"{len(missing_sectors)} trades do not have a sector classification.",
+                    _row_ids(missing_sectors),
+                    "Add sector mapping before using sector allocation for investment decisions.",
+                    missing_sectors.get("symbol", pd.Series(dtype=str)).dropna().astype(str).unique().tolist(),
+                )
             )
-        )
 
     numeric = trades.copy()
     numeric["quantity"] = pd.to_numeric(numeric["quantity"], errors="coerce")
@@ -154,14 +159,15 @@ def run_data_quality_checks(
     ]
     if not inconsistent.empty:
         issues.append(
-            _issue(
-                "Warning",
-                "inconsistent_amount",
-                f"{len(inconsistent)} trades have amount materially different from quantity times price.",
-                _row_ids(inconsistent),
-                "Reconcile execution value, fees and manual Excel formulas.",
+                _issue(
+                    "Warning",
+                    "inconsistent_amount",
+                    f"{len(inconsistent)} trades have amount materially different from quantity times price.",
+                    _row_ids(inconsistent),
+                    "Reconcile execution value, fees and manual Excel formulas.",
+                    inconsistent.get("symbol", pd.Series(dtype=str)).dropna().astype(str).unique().tolist(),
+                )
             )
-        )
 
     negative_sell_rows: list[Any] = []
     running: dict[str, float] = {}
@@ -195,12 +201,13 @@ def run_data_quality_checks(
             issues.append(
                 _issue(
                     "Error",
-                    "negative_positions",
-                    f"{len(negative_positions)} positions are negative.",
-                    negative_positions["symbol"].tolist(),
-                    "Prevent silent short positions unless the class case explicitly allows them.",
-                )
+                "negative_positions",
+                f"{len(negative_positions)} positions are negative.",
+                negative_positions["symbol"].tolist(),
+                "Prevent silent short positions unless the class case explicitly allows them.",
+                negative_positions["symbol"].tolist(),
             )
+        )
 
     if prices is None or prices.empty:
         issues.append(
@@ -234,6 +241,7 @@ def run_data_quality_checks(
                 f"{len(incomplete)} ledger events were kept but could not be fully interpreted.",
                 _row_ids(incomplete),
                 "Review the affected source rows; the MVP keeps them visible instead of crashing.",
+                incomplete.get("symbol", pd.Series(dtype=str)).dropna().astype(str).unique().tolist(),
             )
         )
 
@@ -262,9 +270,57 @@ def run_data_quality_checks(
 def issues_to_frame(issues: list[dict[str, Any]]) -> pd.DataFrame:
     frame = pd.DataFrame(issues)
     if frame.empty:
-        return pd.DataFrame(columns=["severity", "check_name", "message", "affected_rows", "recommendation"])
+        return pd.DataFrame(columns=["severity", "check_name", "message", "affected_rows", "affected_symbols", "recommendation"])
     frame["affected_rows"] = frame["affected_rows"].map(lambda rows: ", ".join(map(str, rows[:20])) if rows else "")
+    if "affected_symbols" not in frame.columns:
+        frame["affected_symbols"] = ""
+    else:
+        frame["affected_symbols"] = frame["affected_symbols"].map(lambda rows: ", ".join(map(str, rows[:20])) if rows else "")
     severity_order = {"Error": 0, "Warning": 1, "Info": 2}
     frame["_order"] = frame["severity"].map(severity_order).fillna(3)
     return frame.sort_values(["_order", "check_name"]).drop(columns=["_order"]).reset_index(drop=True)
 
+
+def lineage_frame(issues: list[dict[str, Any]], trades: pd.DataFrame) -> pd.DataFrame:
+    """Expand issue rows into source-level lineage for analyst review."""
+    rows: list[dict[str, Any]] = []
+    trade_lookup = pd.DataFrame() if trades is None else trades.copy()
+    if not trade_lookup.empty and "source_row" in trade_lookup.columns:
+        trade_lookup["source_row"] = pd.to_numeric(trade_lookup["source_row"], errors="coerce")
+
+    for issue in issues:
+        affected_rows = issue.get("affected_rows") or [None]
+        for source_row in affected_rows:
+            matched = pd.DataFrame()
+            numeric_row = pd.to_numeric(pd.Series([source_row]), errors="coerce").iloc[0]
+            if not trade_lookup.empty and pd.notna(numeric_row):
+                matched = trade_lookup[trade_lookup["source_row"] == numeric_row]
+            if matched.empty:
+                rows.append(
+                    {
+                        "severity": issue.get("severity"),
+                        "issue": issue.get("check_name"),
+                        "source_sheet": None,
+                        "source_row": source_row,
+                        "symbol": ", ".join(map(str, issue.get("affected_symbols") or [])) or None,
+                        "recommendation": issue.get("recommendation"),
+                    }
+                )
+            else:
+                for _, trade in matched.iterrows():
+                    rows.append(
+                        {
+                            "severity": issue.get("severity"),
+                            "issue": issue.get("check_name"),
+                            "source_sheet": trade.get("source_sheet"),
+                            "source_row": trade.get("source_row"),
+                            "symbol": trade.get("symbol"),
+                            "recommendation": issue.get("recommendation"),
+                        }
+                    )
+    frame = pd.DataFrame(rows, columns=["severity", "issue", "source_sheet", "source_row", "symbol", "recommendation"])
+    severity_order = {"Error": 0, "Warning": 1, "Info": 2}
+    if not frame.empty:
+        frame["_order"] = frame["severity"].map(severity_order).fillna(3)
+        frame = frame.sort_values(["_order", "issue", "source_sheet", "source_row"]).drop(columns=["_order"])
+    return frame.reset_index(drop=True)
