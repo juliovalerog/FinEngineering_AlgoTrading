@@ -245,6 +245,66 @@ def write_portfolio_snapshots(snapshots: pd.DataFrame, db_path: Path | str | Non
     _write_table("portfolio_snapshots", snapshots, db_path)
 
 
+def upsert_prices(price_frame: pd.DataFrame, db_path: Path | str | None = None) -> int:
+    """Insert or replace normalized daily prices without duplicating observations."""
+    init_database(db_path)
+    if price_frame is None or price_frame.empty:
+        return 0
+    data = price_frame.copy()
+    required = ["date", "symbol", "price", "source"]
+    for column in required:
+        if column not in data.columns:
+            data[column] = None
+    data = data[required]
+    data["date"] = pd.to_datetime(data["date"], errors="coerce").dt.date.astype("string")
+    data["symbol"] = data["symbol"].astype(str).str.upper().str.strip()
+    data["price"] = pd.to_numeric(data["price"], errors="coerce")
+    data["source"] = data["source"].fillna("Unknown").astype(str)
+    data = data.dropna(subset=["date", "symbol", "price", "source"])
+    if data.empty:
+        return 0
+    rows = list(data.itertuples(index=False, name=None))
+    with _connection(db_path) as conn:
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO prices (date, symbol, price, source)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+    return len(rows)
+
+
+def upsert_benchmark_prices(benchmark_frame: pd.DataFrame, db_path: Path | str | None = None) -> int:
+    """Insert or replace normalized daily benchmark prices."""
+    init_database(db_path)
+    if benchmark_frame is None or benchmark_frame.empty:
+        return 0
+    data = benchmark_frame.copy()
+    required = ["date", "benchmark", "price", "source"]
+    for column in required:
+        if column not in data.columns:
+            data[column] = None
+    data = data[required]
+    data["date"] = pd.to_datetime(data["date"], errors="coerce").dt.date.astype("string")
+    data["benchmark"] = data["benchmark"].fillna("S&P 500").astype(str)
+    data["price"] = pd.to_numeric(data["price"], errors="coerce")
+    data["source"] = data["source"].fillna("Unknown").astype(str)
+    data = data.dropna(subset=["date", "benchmark", "price", "source"])
+    if data.empty:
+        return 0
+    rows = list(data.itertuples(index=False, name=None))
+    with _connection(db_path) as conn:
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO benchmark_prices (date, benchmark, price, source)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+    return len(rows)
+
+
 def recompute_all_after_trade(db_path: Path | str | None = None) -> dict[str, pd.DataFrame]:
     """Read the SQLite ledger, recompute derived tables, and write them back."""
     trades = get_trades(db_path)

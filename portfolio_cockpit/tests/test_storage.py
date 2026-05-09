@@ -72,6 +72,23 @@ def test_new_trade_persistence(tmp_path: Path) -> None:
     assert len(storage.get_trades(db_path)) == 1
 
 
+def test_upsert_prices_does_not_duplicate_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "portfolio.sqlite"
+    price_frame = pd.DataFrame(
+        [
+            {"date": "2026-01-01", "symbol": "ABC", "price": 10, "source": "Yahoo Finance"},
+            {"date": "2026-01-01", "symbol": "ABC", "price": 10.5, "source": "Yahoo Finance"},
+        ]
+    )
+
+    storage.upsert_prices(price_frame, db_path)
+    storage.upsert_prices(price_frame, db_path)
+
+    stored = storage.get_prices(db_path)
+    assert len(stored) == 1
+    assert stored.iloc[0]["price"] == 10.5
+
+
 def test_reset_database_behavior(tmp_path: Path) -> None:
     excel_path = tmp_path / "portfolio.xlsx"
     db_path = tmp_path / "portfolio.sqlite"
@@ -102,4 +119,3 @@ def test_reset_database_behavior(tmp_path: Path) -> None:
 
     storage.reset_database_from_excel(excel_path, db_path)
     assert len(storage.get_trades(db_path)) == initial_count
-

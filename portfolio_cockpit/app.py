@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src import charts, data_loader, filters as display_filters, llm_report, metrics, portfolio_engine, reporting, storage, validation
+from src import charts, data_loader, filters as display_filters, llm_report, market_data, metrics, portfolio_engine, reporting, storage, validation
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -304,6 +304,28 @@ def recent_trade_impact_summary(trades: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+def price_source_coverage(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.DataFrame:
+    columns = ["symbol", "latest_price_date", "latest_price", "source", "observation_count"]
+    if prices is None or prices.empty:
+        return pd.DataFrame(columns=columns)
+    data = prices.copy()
+    data["date"] = pd.to_datetime(data["date"], errors="coerce")
+    data["price"] = pd.to_numeric(data["price"], errors="coerce")
+    data["symbol"] = data["symbol"].astype(str).str.upper().str.strip()
+    data = data.dropna(subset=["date", "symbol", "price"])
+    if data.empty:
+        return pd.DataFrame(columns=columns)
+    latest = data.sort_values(["date", "source"]).groupby("symbol", as_index=False).tail(1)
+    counts = data.groupby("symbol", as_index=False).size().rename(columns={"size": "observation_count"})
+    coverage = latest.merge(counts, on="symbol", how="left")
+    coverage = coverage.rename(columns={"date": "latest_price_date", "price": "latest_price"})
+    coverage["latest_price_date"] = coverage["latest_price_date"].dt.date.astype(str)
+    open_symbols = market_data.get_open_position_symbols(positions)
+    if open_symbols:
+        coverage = coverage[coverage["symbol"].isin(open_symbols)]
+    return coverage[columns].sort_values("symbol").reset_index(drop=True)
+
+
 def make_trade_record(symbol: str, side: str, trade_date: date, quantity: float, price: float, sector: str, notes: str) -> dict[str, Any]:
     return {
         "trade_id": uuid.uuid4().hex,
@@ -490,6 +512,45 @@ tabs = st.tabs(
 with tabs[0]:
     st.subheader("Portfolio Committee Snapshot")
     st.plotly_chart(charts.portfolio_value_chart(filtered_snapshots), width="stretch", key="executive_portfolio_value_chart")
+    st.subheader("Market Data Refresh")
+    st.warning(
+        "Yahoo Finance refresh is optional and intended for educational/demo use. The Excel remains the initial source; Yahoo prices are used only as a market-data update layer."
+    )
+    open_symbols_for_refresh = market_data.get_open_position_symbols(context["positions"])
+    coverage = price_source_coverage(context["prices"], context["positions"])
+    benchmark_latest_date = market_data.get_last_benchmark_date(context["benchmark_prices"])
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Open tickers eligible", len(open_symbols_for_refresh))
+    col_b.metric("S&P 500 latest date", benchmark_latest_date.isoformat() if benchmark_latest_date else "n/a")
+    col_c.metric("Benchmark source", "^GSPC / S&P 500")
+    st.caption("Only tickers with open positions are refreshed. Closed historical trade symbols are not requested from Yahoo Finance.")
+    st.write("Open position tickers:", ", ".join(open_symbols_for_refresh) if open_symbols_for_refresh else "No open tickers available.")
+    st.subheader("Price source coverage")
+    st.dataframe(coverage, hide_index=True, width="stretch")
+    if public_demo_mode:
+        st.info("Public demo mode: a refresh may update the temporary Streamlit runtime database, but it is not guaranteed to persist after the app restarts.")
+    if st.button("Refresh daily market prices from Yahoo Finance"):
+        with st.spinner("Refreshing Yahoo Finance daily prices for open positions and S&P 500..."):
+            st.session_state["last_market_refresh_result"] = market_data.refresh_open_position_prices(DB_PATH)
+        st.rerun()
+    if "last_market_refresh_result" in st.session_state:
+        refresh_result = st.session_state["last_market_refresh_result"]
+        st.write("Latest refresh status:", refresh_result.get("status", "unknown"))
+        if refresh_result.get("messages"):
+            for message in refresh_result["messages"]:
+                st.write(f"- {message}")
+        rows_by_symbol = refresh_result.get("rows_by_symbol", {})
+        if rows_by_symbol:
+            st.dataframe(
+                pd.DataFrame([{"symbol": symbol, "rows_added_or_updated": rows} for symbol, rows in rows_by_symbol.items()]),
+                hide_index=True,
+                width="stretch",
+            )
+        st.metric("S&P 500 rows added/updated", refresh_result.get("benchmark_upserted", 0))
+        if refresh_result.get("failed_symbols"):
+            st.warning("Some Yahoo Finance requests failed. The app kept running and used local data where available.")
+            st.dataframe(pd.DataFrame(refresh_result["failed_symbols"]), hide_index=True, width="stretch")
+
     st.dataframe(
         full_positions_with_contributions[["symbol", "sector", "market_value", "unrealized_pnl", "weight", "market_value_contribution", "absolute_unrealized_pnl_contribution"]]
         if not full_positions_with_contributions.empty

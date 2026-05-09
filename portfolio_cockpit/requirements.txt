@@ -5,4 +5,4 @@ openpyxl
 plotly
 google-genai
 pytest
-
+yfinance
