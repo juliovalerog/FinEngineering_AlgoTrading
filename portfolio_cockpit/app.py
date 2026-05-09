@@ -287,12 +287,92 @@ def impact_row(summary: dict[str, Any], risk: dict[str, Any]) -> dict[str, Any]:
         "cash": summary.get("cash"),
         "invested_value": summary.get("invested_value"),
         "total_portfolio_value": summary.get("total_portfolio_value"),
-        "exposure": exposure,
+        "market_exposure": exposure,
+        "open_positions": summary.get("open_positions"),
         "top_5_concentration": summary.get("top_5_concentration"),
+        "largest_single_name_exposure": summary.get("largest_single_name_exposure"),
+        "unrealized_pnl": summary.get("unrealized_pnl"),
+        "total_pnl": summary.get("total_pnl"),
+        "cumulative_return": summary.get("cumulative_return"),
+        "max_drawdown": risk.get("max_drawdown"),
         "sharpe_ratio": risk.get("sharpe_ratio"),
         "sortino_ratio": risk.get("sortino_ratio"),
-        "max_drawdown": risk.get("max_drawdown"),
     }
+
+
+DEAL_IMPACT_METRICS = [
+    ("Cash", "cash", "money"),
+    ("Invested value", "invested_value", "money"),
+    ("Total portfolio value", "total_portfolio_value", "money"),
+    ("Market exposure", "market_exposure", "pct"),
+    ("Open positions", "open_positions", "num"),
+    ("Top 5 concentration", "top_5_concentration", "pct"),
+    ("Largest single-name exposure", "largest_single_name_exposure", "pct"),
+    ("Unrealized P&L", "unrealized_pnl", "money"),
+    ("Total P&L", "total_pnl", "money"),
+    ("Cumulative return", "cumulative_return", "pct"),
+    ("Max drawdown", "max_drawdown", "pct"),
+    ("Sharpe ratio", "sharpe_ratio", "num"),
+    ("Sortino ratio", "sortino_ratio", "num"),
+]
+
+
+def _format_impact_value(value: Any, value_type: str) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    if value_type == "money":
+        return _fmt_money(value)
+    if value_type == "pct":
+        return _fmt_pct(value)
+    return _fmt_num(value)
+
+
+def build_deal_delta_table(before_summary: dict[str, Any], before_risk: dict[str, Any], after_summary: dict[str, Any], after_risk: dict[str, Any]) -> pd.DataFrame:
+    before = impact_row(before_summary, before_risk)
+    after = impact_row(after_summary, after_risk)
+    rows = []
+    for label, key, value_type in DEAL_IMPACT_METRICS:
+        before_value = before.get(key)
+        after_value = after.get(key)
+        delta = after_value - before_value if before_value is not None and after_value is not None and not pd.isna(before_value) and not pd.isna(after_value) else np.nan
+        rows.append(
+            {
+                "Metric": label,
+                "Before": _format_impact_value(before_value, value_type),
+                "After": _format_impact_value(after_value, value_type),
+                "Delta": _format_impact_value(delta, value_type),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def deal_interpretation_items(delta_frame: pd.DataFrame) -> list[str]:
+    numeric_hint = {row["Metric"]: row["Delta"] for _, row in delta_frame.iterrows()}
+    items = [
+        f"Cash impact: {numeric_hint.get('Cash', 'n/a')}.",
+        f"Market exposure changes by {numeric_hint.get('Market exposure', 'n/a')}.",
+        f"Top 5 concentration changes by {numeric_hint.get('Top 5 concentration', 'n/a')}.",
+        f"Unrealized P&L changes by {numeric_hint.get('Unrealized P&L', 'n/a')}.",
+    ]
+    sharpe_delta = numeric_hint.get("Sharpe ratio", "n/a")
+    sortino_delta = numeric_hint.get("Sortino ratio", "n/a")
+    items.append(f"Risk metric change: Sharpe {sharpe_delta}, Sortino {sortino_delta}.")
+    return items
+
+
+def accept_deal(trade: dict[str, Any], public_demo: bool, db_path: Path = DB_PATH) -> str:
+    if public_demo:
+        session_records = st.session_state.get("session_trades", [])
+        accepted_trade = dict(trade)
+        accepted_trade["status"] = "PUBLIC_SESSION_DEMO"
+        accepted_trade["notes"] = f"{accepted_trade.get('notes') or ''} Public demo session action; not durable.".strip()
+        session_records.append(accepted_trade)
+        st.session_state["session_trades"] = session_records
+        return "Public demo commit recorded for this session only. It may disappear when the app restarts."
+    storage.insert_trade(trade, db_path)
+    storage.write_audit_log("TRADE_INSERT", f"Manual {trade.get('side')} trade inserted for {trade.get('symbol')}.", db_path)
+    storage.recompute_all_after_trade(db_path)
+    return "Deal stored in SQLite and portfolio recalculated."
 
 
 def add_position_contributions(positions: pd.DataFrame) -> pd.DataFrame:
@@ -518,7 +598,8 @@ visible_tabs = st.tabs(
         "Data & Controls",
         "Portfolio Analysis",
         "Performance & Risk",
-        "Actions & Reporting",
+        "New Deal",
+        "Reporting & Roadmap",
     ]
 )
 tabs = [
@@ -529,13 +610,13 @@ tabs = [
     visible_tabs[3],
     visible_tabs[2],
     visible_tabs[4],
-    visible_tabs[4],
-    visible_tabs[4],
+    visible_tabs[5],
+    visible_tabs[5],
 ]
 
 with tabs[0]:
     teaching_note(
-        "Excel is the input. SQLite is the system of record. Python is the engine. Streamlit is the interface. Gemini is the reporting assistant.",
+        "Professional cockpit for decision making: what we own, how it is performing, and what requires attention.",
         teaching_mode,
     )
     st.subheader("Portfolio Committee Snapshot")
@@ -574,7 +655,7 @@ with tabs[0]:
         st.write(f"- {item}")
 with tabs[1]:
     teaching_note(
-        "The Excel is the operational input. The professional workflow starts when we separate raw data, validation, calculations, storage and reporting.",
+        "Excel is the input, SQLite is the system of record, and Yahoo Finance is only a market update layer.",
         teaching_mode,
     )
     if teaching_mode:
@@ -630,14 +711,6 @@ with tabs[1]:
         with st.spinner("Refreshing Yahoo Finance daily prices for open positions and S&P 500..."):
             st.session_state["last_market_refresh_result"] = market_data.refresh_open_position_prices(DB_PATH)
         st.rerun()
-    if st.button("Repair S&P 500 benchmark scale"):
-        with st.spinner("Checking and repairing benchmark scale if needed..."):
-            st.session_state["last_benchmark_repair_result"] = market_data.repair_benchmark_if_scale_inconsistent(DB_PATH)
-        st.rerun()
-    if "last_benchmark_repair_result" in st.session_state:
-        repair_result = st.session_state["last_benchmark_repair_result"]
-        st.write("Benchmark repair result:", repair_result.get("message", "No result message available."))
-        st.json(repair_result)
     if "last_market_refresh_result" in st.session_state:
         refresh_result = st.session_state["last_market_refresh_result"]
         st.write("Latest refresh status:", refresh_result.get("status", "unknown"))
@@ -684,7 +757,7 @@ with tabs[1]:
 
 with tabs[2]:
     teaching_note(
-        "Before analysing performance, a professional analyst checks whether the data can be trusted.",
+        "The analyst reviews data quality before trusting performance. Validation checks whether the ledger, prices and benchmark can support the analysis.",
         teaching_mode,
     )
     severity_counts = issue_frame["severity"].value_counts() if not issue_frame.empty else pd.Series(dtype=int)
@@ -700,7 +773,7 @@ with tabs[2]:
 
 with tabs[3]:
     teaching_note(
-        "This is the portfolio manager's current decision base: what we own, where the exposure is, and where risk is concentrated.",
+        "portfolio_engine.py reconstructs positions from the normalized ledger using FIFO, then values current exposure and concentration.",
         teaching_mode,
     )
     cols = st.columns(4)
@@ -734,7 +807,7 @@ with tabs[3]:
 
 with tabs[4]:
     teaching_note(
-        "A portfolio can make money and still be a poor portfolio if the risk-adjusted performance, drawdown or concentration profile is weak.",
+        "metrics.py turns portfolio snapshots into return, benchmark, volatility, drawdown and risk-adjusted analytics.",
         teaching_mode,
     )
     risk_free_rate = st.number_input("Annual risk-free rate", min_value=0.0, max_value=0.20, value=0.0, step=0.005, format="%.3f")
@@ -808,10 +881,10 @@ with tabs[5]:
 
 with tabs[6]:
     teaching_note(
-        "This is the moment where the MVP stops being a static dashboard and becomes an operating tool: new trades enter the system and the portfolio is recalculated.",
+        "The analyst simulates impact before storing a new operation. Nothing enters SQLite until the deal is explicitly accepted.",
         teaching_mode,
     )
-    st.subheader("Manual trade ticket")
+    st.subheader("New deal ticket")
     with st.form("manual_trade_form"):
         col_a, col_b, col_c = st.columns(3)
         symbol = col_a.text_input("Symbol").upper().strip()
@@ -822,40 +895,40 @@ with tabs[6]:
         price = col_e.number_input("Price", min_value=0.0, value=0.0, step=0.01)
         sector = col_f.text_input("Sector").strip()
         notes = st.text_area("Notes", value="", height=80)
-        col_sim, col_commit = st.columns(2)
-        simulate_clicked = col_sim.form_submit_button("Simulate trade impact")
-        commit_clicked = col_commit.form_submit_button("Commit trade")
+        simulate_clicked = st.form_submit_button("Simulate deal impact")
 
-    if simulate_clicked or commit_clicked:
+    if simulate_clicked:
         before = load_context(public_demo_mode)
         trade = make_trade_record(symbol, side, trade_date, quantity, price, sector, notes)
         manual_issues = validation.validate_manual_trade(trade, before["positions"])
         errors = [issue for issue in manual_issues if issue["severity"] == "Error"]
         if errors:
+            for key in ["pending_deal", "pending_deal_delta", "pending_deal_interpretation"]:
+                st.session_state.pop(key, None)
             for issue in errors:
                 st.error(issue["message"])
+            st.warning("Simulation was not created because the deal ticket fails validation.")
         else:
             simulation = simulated_context(before, trade)
-            st.session_state["last_impact"] = pd.DataFrame(
-                [impact_row(before["summary"], before["risk"]), impact_row(simulation["summary"], simulation["risk"])],
-                index=["Before", "After"],
-            )
-            st.session_state["pending_trade"] = trade
-            if simulate_clicked:
-                st.info("Simulation complete. No database write was performed.")
-            if commit_clicked:
-                if public_demo_mode:
-                    session_records = st.session_state.get("session_trades", [])
-                    trade["status"] = "PUBLIC_SESSION_DEMO"
-                    trade["notes"] = f"{trade.get('notes') or ''} Public demo session action; not durable.".strip()
-                    session_records.append(trade)
-                    st.session_state["session_trades"] = session_records
-                    st.success("Public demo commit recorded for this session only. It may disappear when the app restarts.")
-                else:
-                    storage.insert_trade(trade, DB_PATH)
-                    storage.write_audit_log("TRADE_INSERT", f"Manual {side} trade inserted for {symbol}.", DB_PATH)
-                    storage.recompute_all_after_trade(DB_PATH)
-                    st.success("Trade stored in SQLite and portfolio recalculated.")
+            delta_frame = build_deal_delta_table(before["summary"], before["risk"], simulation["summary"], simulation["risk"])
+            st.session_state["pending_deal"] = trade
+            st.session_state["pending_deal_delta"] = delta_frame
+            st.session_state["pending_deal_interpretation"] = deal_interpretation_items(delta_frame)
+            st.info("Simulation complete. No database write was performed.")
+
+    if "pending_deal_delta" in st.session_state:
+        st.subheader("Before / after / delta analysis")
+        st.dataframe(st.session_state["pending_deal_delta"], hide_index=True, width="stretch")
+        st.markdown("**What changes if this deal is accepted?**")
+        for item in st.session_state.get("pending_deal_interpretation", []):
+            st.write(f"- {item}")
+        if st.button("Accept and store deal"):
+            pending_trade = st.session_state.get("pending_deal")
+            if pending_trade:
+                message = accept_deal(pending_trade, public_demo_mode, DB_PATH)
+                for key in ["pending_deal", "pending_deal_delta", "pending_deal_interpretation"]:
+                    st.session_state.pop(key, None)
+                st.success(message)
                 st.rerun()
 
     st.subheader("Import operational NEW TRADES sheet")
@@ -879,18 +952,15 @@ with tabs[6]:
                 storage.recompute_all_after_trade(DB_PATH)
             after = load_context(public_demo_mode)
             st.info(f"Inserted {inserted} new trade events. Existing deterministic import IDs were skipped.")
-        st.session_state["last_impact"] = pd.DataFrame(
-            [impact_row(before["summary"], before["risk"]), impact_row(after["summary"], after["risk"])],
-            index=["Before", "After"],
-        )
+        st.session_state["new_trades_impact"] = build_deal_delta_table(before["summary"], before["risk"], after["summary"], after["risk"])
 
-    if "last_impact" in st.session_state:
-        st.subheader("Before and after impact")
-        st.dataframe(st.session_state["last_impact"], width="stretch")
+    if "new_trades_impact" in st.session_state:
+        st.subheader("NEW TRADES import impact")
+        st.dataframe(st.session_state["new_trades_impact"], hide_index=True, width="stretch")
 
 with tabs[7]:
     teaching_note(
-        "Python calculates the facts. Gemini drafts the narrative from validated summary data and remains optional.",
+        "Python calculates the facts. Gemini drafts the narrative. Production requires governance, controls and recovery procedures.",
         teaching_mode,
     )
     st.markdown(

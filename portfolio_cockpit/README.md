@@ -72,13 +72,14 @@ The `TRACK` sheet is converted into a normalized trade ledger. Current positions
 
 ## App Workflow
 
-The app is organized into five classroom sections:
+The app is organized into six classroom sections:
 
 - `Home / Portfolio Cockpit`: executive KPIs, portfolio value, benchmark comparison and attention points.
 - `Data & Controls`: Excel/SQLite status, reset, Yahoo refresh, price coverage, data quality, lineage and audit log.
 - `Portfolio Analysis`: current positions, allocation, contributors, detractors and concentration.
 - `Performance & Risk`: return, benchmark, volatility, Sharpe, Sortino, beta, tracking error, information ratio and drawdown.
-- `Actions & Reporting`: trade simulation, SQLite/session commits, NEW TRADES import, deterministic report, optional Gemini report and production roadmap.
+- `New Deal`: simulate a new trade/deal, review before/after impact, then accept it into SQLite or the public demo session.
+- `Reporting & Roadmap`: deterministic report, optional Gemini narrative, report downloads and production roadmap.
 
 ## Reset Demo Database
 
